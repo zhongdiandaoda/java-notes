@@ -2,8 +2,6 @@ Java的IO是通过java.io包中的类和接口来支持，在java.io中主要包
 
 Java的IO流使用了一种装饰器设计模式，它将IO流分为底层节点流和上层处理流，其中节点流用于和底层的物理存储节点直接关联，将不同的物理节点流包装成统一的处理流，从而允许程序使用统一的输入输出代码来读取不同的物理存储节点的资源。
 
-
-
 # File类
 
 File类是java.io包下代表与平台无关的文件和目录，在程序中操作文件和目录都可以通过File类来完成。File能新建、删除、重命名文件和目录，但File不能访问文件内容本身，需要通过输入/输出流来辅助完成文件内容的访问。
@@ -191,7 +189,7 @@ Java的IO流里的四十多个类都是从以下4个基类派生出来的：
 - `InputStream/Reader`：所有输入流的基类，前者为字节输入流，后者为字符输入流。
 - `OutputStream/Writer`：所有输出流的基类，前者为字节输出流，后者为字符输出流。
 
-
+![](IO.assets/88e8dc8113e64cf7850d1d4950518383)
 
 # 字节流和字符流
 
@@ -565,7 +563,7 @@ redirect to file!
 Process finished with exit code 0
 ```
 
-# Java虚拟机读写其他进程的数据
+# JVM读写其他进程的数据
 
 使用Runtime对象的exec()方法可以运行平台上的其他程序，该方法产生一个Process对象，Process对象代表由Java程序启动的子进程。Process类提供了以下三个方法，用于让程序和其子进程进行通信。
 
@@ -719,91 +717,7 @@ public class Test {
 
 > 多线程网络下载工具，例如IDM，可以通过`RandomAccessFile`类来实现。
 
-# 对象序列化
+# NIO
 
-对象序列化的目标是将对象保存在磁盘中，或者允许在网络中直接传输对象。对象序列化机制能够将内存中的java对象转换为平台无关的二进制流，其他程序获得这种二进制流之后可以将其恢复成java对象。
+BufferedReader
 
-## 序列化的含义和意义
-
-序列化机制允许将实现了Serializable接口的对象转换成字节序列，脱离程序的运行而存在。
-
-对象的序列化是指将对象写入IO流，反序列化指从IO流中取出对象。
-
-某个对象支持序列化的条件是实现了以下的两个接口之一：
-
-1. Serializable
-2. Externalizable
-
-Java的很多类实现了Serializable接口，该接口是一个标记接口，没有抽象方法，只是用来表明该类是可序列化的。
-
-所有在网络上传输的对象必须是可序列化的，比如RMI过程中的参数和返回值；所有需要保存到磁盘里的对象也必须是可序列化的，例如Web应用需要保存到HttpSession或ServletContext属性中的Java对象。
-
-序列化机制是`JavaEE`的基础，通常要求每个JavaBean类都实现Serializable接口。
-
-## 使用对象流实现序列化
-
-对一个实现了Serializable接口的类，进行序列化的步骤为：
-
-1. 创建一个`ObjectOutputStream`，这个流是处理流，构造方法需要接收一个节点流。`
-
-```java
-ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(
-"a.txt"));
-```
-
-2. 调用writeObject方法，输出可序列化对象。
-
-```java
-//apple是Apple类的一个实例，Apple实现了Serializable接口
-oos.write(apple)
-```
-
-示例：将一个Integer对象写入磁盘文件中（Integer的父类Number实现了Serializable）。
-
-```java
-public class Test {
-    public static void main(String[] args) {
-        try {
-            Integer e = new Integer(500);
-            ObjectOutputStream objectOutputStream = new ObjectOutputStream(new FileOutputStream("b.txt", true));
-            objectOutputStream.writeObject(e);
-        }catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-}
-```
-
-![image-20201130143206807](IO.assets/image-20201130143206807.png)
-
-从文件中读出该对象并进行反序列化：
-
-```java
-public class Test {
-    public static void main(String[] args) {
-        try {
-            ObjectInputStream objectInputStream = new ObjectInputStream(new FileInputStream("b.txt"));
-            Integer e = (Integer) objectInputStream.readObject();
-            System.out.println(e);
-        }catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-}
-```
-
-![image-20201130143403612](IO.assets/image-20201130143403612.png)
-
-反序列化时仅能从文件中读取到java对象的数据，必须通过类型转换符提供类的数据，否则会抛出异常。
-
-**反序列化机制无需通过构造器来初始化java对象。**它通过反射机制调用第一个非Serializable父类的无参构造方法来创建对象。对于实现Serializable接口的类，并不要求该类具有一个无参的构造方法, 因为在反序列化的过程中实际上是去其继承树上找到一个没有实现Serializable接口的父类(最终会找到Object)，然后构造该类的对象，再逐层往下的去设置各个可以反序列化的属性(也就是没有被transient修饰的非静态属性)。
-
-当一个可序列化类有多个父类时，这些父类要么有无参构造器，要么也是可序列化的，否则反序列化时会抛出`InvalidClassException`异常。如果父类是不可序列化的，只带有无参构造器，则子类继承自父类的成员变量不会被序列化到二进制流中。
-
-## 对象引用的序列化
-
-一个类中含有另一个类的引用成员时，要求该引用的类也是可序列化的。
-
-==特殊情况==：
-
-当程序中有两个Teacher引用，并指向同一个对象时：
