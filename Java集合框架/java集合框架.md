@@ -716,22 +716,24 @@ key和value之间存在着单向一对一的关系，任意一个key有唯一的
 
 Map中的所有key可以构成一个Set。在JAVA中HashSet底层是通过一个value全部为null的Map来实现的。
 
+**null可以作为key。**
+
 Map中的所有value可以组成一个list，只是需要以一个对象作为索引。
 
 Map定义了以下常用的方法：
 
 - void clear()：清空Map。
+- V put(K, V)：如果之前存在K这个键，返回其之前的value，否则返回null。
 - boolean containsKey(Object key)
 - boolean containValue(Object value)
 - Set entrySet()：返回Map中包含的key-value对组成的Set集合，每个集合元素都是Map.Entry（Entry是Map的内部类）对象。
 - Object get(Object key)：返回key对应的value，key不存在时返回null。
-- boolean isEmpty()
+- void putAll(Map m)
 - Set keySet：返回Map中key构成的Set。
 - Object put(Object key, Object value)：添加一个键值对，如果key已经存在，则更新其value。
 - void putAll(Map m)：将m中的键值对全部添加到Map中。
 - Object remove(Object key)：删除指定key对应的键值对，返回被删除的键值对的value。当key不存在时，返回null。
 - boolean remove(Object key, Object value)：Java8新增方法，删除key-value对应的键值对，如果成功删除，返回true，否则返回false。
-- int size()
 - Collection values()：返回value组成的Collection。
 
 Map的内部类Entry主要包含以下方法：
@@ -746,11 +748,11 @@ Map的内部类Entry主要包含以下方法：
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | Object compute(Object key, BiFunction remappingFunction)     | 该方法使用 remappingFunction 根据原 key-value 对计算一个新 value。只要新 value 不为 null，就使用新 value 覆盖原 value；如果原 value 不为 null，但新 value 为 null，则删除原 key-value 对；如果原 value、新 value 同时为 null，那么该方法不改变任何 key-value 对，直接返回 null。 |
 | Object computeIfAbsent(Object key, Function mappingFunction) | 如果传给该方法的 key 参数在 Map 中对应的 value 为 null，则使用 mappingFunction 根据 key 计算一个新的结果，如果计算结果不为 null，则用计算结果覆盖原有的 value。如果原 Map 原来不包括该 key，那么该方法可能会添加一组 key-value 对。 |
-| Object computeIfPresent(Object key, BiFunction remappingFunction) | 如果传给该方法的 key 参数在 Map 中对应的 value 不为 null，该方法将使用 remappingFunction 根据原 key、value 计算一个新的结果，如果计算结果不为 null，则使用该结果覆盖原来的 value；如果计算结果为 null，则删除原 key-value 对。 |
+| Object computeIfPresent(Object key, BiFunction remappingFunction) | 如果传给该方法的 key 参数在 Map 中对应的 value 不为 null，该方法将使用 remappingFunction 根据原 key、value 计算一个新的结果，如果计算结果为 null，则使用该结果覆盖原来的 value；如果计算结果为 null，则删除原 key-value 对。 |
 | **void forEach(BiConsumer action)****                        | 该方法是 Java 8 为 Map 新增的一个遍历 key-value 对的方法，通过该方法可以更简洁地遍历 Map 的 key-value 对。 |
 | **Object getOrDefault(Object key, V defaultValue)**          | 获取指定 key 对应的 value。如果该 key 不存在，则返回 defaultValue。 |
 | Object merge(Object key, Object value, BiFunction remappingFunction) | 该方法会先根据 key 参数获取该 Map 中对应的 value。如果获取的 value 为 null，则直接用传入的 value 覆盖原有的 value（在这种情况下，可能要添加一组 key-value 对）；如果获取的 value 不为 null，则使用 remappingFunction 函数根据原 value、新 value 计算一个新的结果，并用得到的结果去覆盖原有的 value。 |
-| Object putIfAbsent(Object key, Object value)                 | 该方法会自动检测指定 key 对应的 value 是否为 null，如果该 key 对应的 value 为 null，该方法将会用新 value 代替原来的 null 值。 |
+| Object putIfAbsent(Object key, Object value)                 | 该方法会自动检测指定 key 对应的 value 是否为 null，如果该 key 对应的 value 为 null，该方法将会用新 value 代替原来的 null 值，否则什么都不做。 |
 | **Object replace(Object key, Object value)**                 | 将 Map 中指定 key 对应的 value 替换成新 value。与传统 put() 方法不同的是，该方法不可能添加新的 key-value 对。如果尝试替换的 key 在原 Map 中不存在，该方法不会添加 key-value 对，而是返回 null。 |
 | boolean replace(K key, V oldValue, V newValue)               | 将 Map 中指定 key-value 对的原 value 替换成新 value。如果在 Map 中找到指定的 key-value 对，则执行替换并返回 true，否则返回 false。 |
 | replaceAll(BiFunction function)                              | 该方法使用 BiFunction 对原 key-value 对执行计算，并将计算结果作为该 key-value 对的 value 值。 |
@@ -791,6 +793,26 @@ public static void main(String[] args) {
 Process finished with exit code 0
 ```
 
+| 是否覆盖value   | 返回值 |        |
+| --------------- | ------ | ------ |
+| put             | 是     | 覆盖前 |
+| compute         | 是     | 覆盖后 |
+| putIfAbsent     | 否     | 覆盖前 |
+| computeIfAbsent | 否     | 覆盖后 |
+
+总结：
+
+1. put与compute：
+
+  不论key是否存在，强制用value覆盖进去。
+
+  区别：put返回旧value或null，compute返回新的value
+
+2. putIfAbsent与computeIfAbsent：
+
+  key存在，则不操作，key不存在，则赋值一对新的（key，value）。
+
+  区别：putIfAbsent返回旧value或null，computeIfAbsent返回新的value
 ## HashMap和Hashtable
 
 HashMap和Hashtable的关系类似于ArrayList和Vector，它们的主要区别是：
