@@ -23,6 +23,7 @@ Collection接口是List、Set和Queue的父接口，其中定义的方法这三�
 ```java
 //向集合中添加一个元素，如果集合对象被add操作改变了，则返回true。
 boolean add(Object o);
+
 //将集合c的所有元素添加到集合中，即两个集合取并集，如果调用函数的集合被改变了，则返回true。
 boolean addAll(Collection c);
 //删除集合中的所有元素
