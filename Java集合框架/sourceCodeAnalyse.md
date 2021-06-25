@@ -374,3 +374,19 @@ CopyOnWriteArrayList 在写操作的同时允许读操作，大大提高了读�
 
 # LinkedList
 
+基于双向链表实现，实现了Deque和List接口。
+
+```java
+private static class Node<E> {
+    E item;
+    Node<E> next;
+    Node<E> prev;
+
+    Node(Node<E> prev, E element, Node<E> next) {
+        this.item = element;
+        this.next = next;
+        this.prev = prev;
+    }
+}
+```
+
