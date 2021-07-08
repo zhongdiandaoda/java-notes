@@ -206,7 +206,7 @@ HashSet具有以下特点：
 - HashSet不是同步的，假设有两个或者两个以上线程同时修改了HashSet集合时，则必须通过代码来保证其同步。
 - 集合元素值可以是null。
 
-当向HashSet集合中存入一个元素时，HashSet会调用该对象的 hashCode()方法来得到该对象的hashCode值,然后根据该hashCode值决定该对象在HashSet中的存储位置。如果有两个元素通过equals()方法比较返回true，但它们的 hashCode()方法返回值不相等，HashSet 将会把它们存储在不同的位置，依然可以添加成功。HashSet判断两个元素相等的标准是两个对象通过 equals()方法比较相等，并且两个对象的hashCode()方法返回值也相等。
+当向HashSet集合中存入一个元素时，HashSet会调用该对象的 hashCode()方法来得到该对象的hashCode值,然后根据该hashCode值决定该对象在HashSet中的存储位置。如果有两个元素通过equals()方法比较返回true，但它们的 hashCode()方法返回值不相等，HashSet 将会把它们存储在不同的位置，依然可以添加成功。HashSet判断两个元素相等的过程是，先判断两个元素的HashCode是否相同，然后使用==或equals方法进行比较。
 
 下面程序分别提供了三个类A、B和C，它们分别重写了equals()、hashCode()两个方法的一个或全部，通过此程序可以让读者看到HashSet判断集合元素相同的标准。
 
