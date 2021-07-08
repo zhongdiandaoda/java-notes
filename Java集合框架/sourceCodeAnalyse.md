@@ -134,6 +134,7 @@ private static final int DEFAULT_CAPACITY = 10;
         // overflow-conscious code
         int oldCapacity = elementData.length;
         int newCapacity = oldCapacity + (oldCapacity >> 1);
+        //1.5倍旧容量仍然小于新容量时，将新容量设置为minCapacity
         if (newCapacity - minCapacity < 0)
             newCapacity = minCapacity;
         if (newCapacity - MAX_ARRAY_SIZE > 0)
