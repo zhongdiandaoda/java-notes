@@ -23,7 +23,7 @@ outer_iteration {
 
 # Switch
 - switch的每个case都以break结束
-- 如果没有break，会顺序执行之后的判断
+- 如果没有break，会顺序执行之后的所有case中的代码，即使不满足case的条件。
 - switch表达式expression表达式的数据类型仅支持byte、short、char、int和java7新增的String。
 
 # DoWhile
