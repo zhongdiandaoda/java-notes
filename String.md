@@ -53,6 +53,10 @@ String类的构造方法：
 
 String类是不可变的，因此会产生很多临时变量。
 
+Join方法：
+
+
+
 # `StringBuffer`
 
 `StringBuffer`对象代表一个字符序列可变的字符串。`StringBuffer`对象创建后可通过`append`、`insert`、`reverse`、`setCharAt`、`setLength`等方法改变字符序列，最后调用`toString`方法转换回字符串。
