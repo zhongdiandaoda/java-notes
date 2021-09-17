@@ -183,20 +183,6 @@ private class Itr implements Iterator<E> {
 
 注意：Iterator必须依赖于Collection对象，它是对象中的一个成员，由集合类中的私有内部类来实现接口。
 
-## 使用Predicate操作集合
-
-
-
-## 使用Stream操作集合
-
-
-
-
-
-
-
-
-
 # Set集合
 
 Set接口继承自Collection，和Collection方法相同，没有提供额外的方法。
