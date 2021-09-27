@@ -61,13 +61,21 @@ Join方法：
 
 `StringBuffer`对象代表一个字符序列可变的字符串。`StringBuffer`对象创建后可通过`append`、`insert`、`reverse`、`setCharAt`、`setLength`等方法改变字符序列，最后调用`toString`方法转换回字符串。
 
+并发安全性由 synchronized 方法保证。
+
 `StringBuffer`的方法：
 
 - `StringBuffer append(char[]/String/char/int/boolean/long/...)`
-- `StringBuffer delete(int start, int end)`
+- `StringBuffer delete(int start, int end)`：左闭右开
 - `StringBuffer deleteCharAt(int index)`
 - `StringBuffer replace(int start, int end, String str)` 
 - `StringBuffer reverse()`
+- `StringBuffer insert(int offset, obj o)`：append 方法等价于 `sb.insert(sb.length(), x)`。
+- `String substring(int start, int end)`：左闭右开
+- `int indexOf(String str)`：如果包含子串，返回子串的开始位置
+- `int indexOf(String str, int fromIndex)`
+- `int lastIndexOf(String str)`
+- `int lastIndexOf(String str, int fromIndex)`
 
 # `StringBuilder`
 
