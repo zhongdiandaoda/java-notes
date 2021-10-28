@@ -1052,3 +1052,170 @@ public int size() {
 JDK 1.8 使用了 CAS 操作来支持更高的并发度，在 CAS 操作失败时使用内置锁 synchronized。
 
 并且 JDK 1.8 的实现也在链表过长时会转换为红黑树。
+
+# TreeMap
+
+TreeMap是一个红黑树，基于NavigableMap，根据 key 的 natural order 或者传入构造方法的自定义比较器进行排序。TreeMap 可以保证对containsKey、get、put 和 remove 操作，其时间复杂度为 logN 。
+
+TreeMap 的实现并不是线程安全的，多线程环境下，需要手动添加相关的同步操作。
+
+使用自定义比较器时，当且仅当 equals 方法返回 true 时，compare 方法返回0。
+
+TreeMap的 get 操作和 containsKey 操作均基于二分查找：
+
+```java
+	final Entry<K,V> getEntry(Object key) {
+        // Offload comparator-based version for sake of performance
+        if (comparator != null)
+            //基于比较器的二分查找
+            return getEntryUsingComparator(key);
+        if (key == null)
+            throw new NullPointerException();
+        @SuppressWarnings("unchecked")
+            Comparable<? super K> k = (Comparable<? super K>) key;
+        Entry<K,V> p = root;
+        while (p != null) {
+            int cmp = k.compareTo(p.key);
+            if (cmp < 0)
+                p = p.left;
+            else if (cmp > 0)
+                p = p.right;
+            else
+                return p;
+        }
+        return null;
+    }
+```
+
+**put：**
+
+```java
+	/**
+	* 当TreeMap中存在key时，仅仅对value做一个更新，当自定义比较器根据value进行排序时，此处不会更新key的位置
+	* 当TreeMap中不存在key，找到key的位置后，在红黑树插入新节点
+	*/
+	public V put(K key, V value) {
+        Entry<K,V> t = root;
+        if (t == null) {
+            compare(key, key); // type (and possibly null) check
+
+            root = new Entry<>(key, value, null);
+            size = 1;
+            modCount++;
+            return null;
+        }
+        int cmp;
+        Entry<K,V> parent;
+        // split comparator and comparable paths
+        Comparator<? super K> cpr = comparator;
+        if (cpr != null) {
+            do {
+                parent = t;
+                cmp = cpr.compare(key, t.key);
+                if (cmp < 0)
+                    t = t.left;
+                else if (cmp > 0)
+                    t = t.right;
+                else
+                    return t.setValue(value);
+            } while (t != null);
+        }
+        else {
+            if (key == null)
+                throw new NullPointerException();
+            @SuppressWarnings("unchecked")
+                Comparable<? super K> k = (Comparable<? super K>) key;
+            do {
+                parent = t;
+                cmp = k.compareTo(t.key);
+                if (cmp < 0)
+                    t = t.left;
+                else if (cmp > 0)
+                    t = t.right;
+                else
+                    return t.setValue(value);
+            } while (t != null);
+        }
+        Entry<K,V> e = new Entry<>(key, value, parent);
+        if (cmp < 0)
+            parent.left = e;
+        else
+            parent.right = e;
+        fixAfterInsertion(e);
+        size++;
+        modCount++;
+        return null;
+    }
+```
+
+**remove：**remove方法会将 key 对应的节点删除，随后对红黑树进行调整，让红黑树保持平衡。
+
+demo：自定义比较器
+
+```java
+// leetcode 2034. 股票价格波动
+class StockPrice {
+    TreeMap<Integer, Integer> map;
+    int current = -1;
+    Map<Integer, Integer> data;
+    public StockPrice() {
+        data = new HashMap<>();
+        map = new TreeMap<>((o1, o2) -> {
+            // 由于treemap使用比较器判断key是否重复，所以
+            // 在比较器中实现equals，当且仅当key和value都相等，才返回0
+            if(data.get(o1).equals(data.get(o2)) && o1.equals(o2)) {
+                return 0;
+            }
+            // 出现value相同，key不同的两个元素时，不能返回0（否则会覆盖值）
+            // value相同时，可以根据其key排序，或者固定返回1/-1
+            if(data.get(o1).equals(data.get(o2))) {
+                return o1.compareTo(o2);
+            }
+            // 都不满足时，根据price排序
+            return data.get(o1).compareTo(data.get(o2));
+        });
+    }
+    
+    public void update(int timestamp, int price) {
+
+        if(!data.containsKey(timestamp)) {
+            // 当map中不包含key时
+            // 需要先向data中插入元素，不然map无法正确基于比较器插入元素
+            data.put(timestamp, price);
+            map.put(timestamp, price);
+        }else {
+            // 这里有个坑
+            // 因为treemap自定义比较器用到了data的数据
+            // remove方法也需要用到比较器，必须先从treemap删除数据
+            // 然后再更新data中的数据
+            // 再向treemap插入数据
+            map.remove(timestamp);
+            data.put(timestamp, price);
+            map.put(timestamp, price);
+        }
+        current = Math.max(current, timestamp);
+    }
+    
+    public int current() {
+        return map.get(current);
+    }
+    
+    public int maximum() {
+        return map.get(map.lastKey());
+    }
+    
+    public int minimum() {
+        return map.get(map.firstKey());
+    }
+}
+
+/**
+ * Your StockPrice object will be instantiated and called as such:
+ * StockPrice obj = new StockPrice();
+ * obj.update(timestamp,price);
+ * int param_2 = obj.current();
+ * int param_3 = obj.maximum();
+ * int param_4 = obj.minimum();
+ */
+```
+
