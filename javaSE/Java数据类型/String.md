@@ -50,10 +50,16 @@ String类的构造方法：
 - `String toUpperCase()`
 - `static String valueOf(X x)`：X为基本类型。
 - `String[] split(String regex, int limit)`
+- `String trim()`：删除字符串的头尾空白符，包括`\t,\r,\n`。
 
 String类是不可变的，因此会产生很多临时变量。
 
 Join方法：
+
+```java
+String[] names = {"Bob", "Alice", "Grace"};
+String s = String.join(", ", names);
+```
 
 
 
