@@ -1,0 +1,497 @@
+Java虚拟机在执行Java程序的过程中会把它所管理的内存划分为若干个不同的数据区域，这些区域有其各自的用途，以及创建销毁的时间，其中有些会一直存在，即随着虚拟机的启动而创建、随着虚拟机的退出而销毁；另外一些则是与虚拟机中的单个线程一一对应，这些与线程相对应的数据区域会随着线程的开始而创建、随着线程的结束即销毁。
+
+![img](memory.assets/20141013141216040)
+
+PC的内存区域是在Java虚拟机规范中唯一一个没有规定任何`OutOfMemoryError`情况的区域。
+
+>native方法多由C和C++语言实现，譬如`java.lang.Object`类中的`hashCode()`方法就是native方法，其底层是通过C++实现的。
+
+# 线程私有区域
+
+## 虚拟机栈
+
+由于跨平台性的设计，java的指令都是根据栈来设计的。不同平台CPU架构不同，所以不能设计为基于寄存器的。
+**优点是跨平台，指令集小，编译器容易实现，缺点是性能下降，实现同样的功能需要更多的指令。**
+
+虚拟机栈的访问速度仅次于PC。
+
+![img](memory.assets/20141117164047783)
+
+### 栈帧
+
+- 执行引擎运行的所有字节码指令只针对当前栈帧进行操作。
+- 如果在该方法中调用了其他方法，对应的新的栈帧会被创建出来，放在栈的顶端，成为新的当前栈帧。
+- 不同线程中所包含的栈帧是不允许相互引用的，即不可能在另一个栈帧中引用另外一个线程的栈帧
+
+![img](memory.assets/20141013142638909)
+
+### 局部变量表
+
+虚拟机栈中的局部变量表部分存放了编译期已知的各种基本数据类型(`boolean, byte, int float, double……`)、对象引用（reference类型）和`returnAddress`类型（指向了一条字节码指令的地址）。
+
+long和double类型的数据会占用两个局部变量空间（slot），其余的数据类型只占用一个。局部变量表所需的空间在编译期间完成分配，当进入一个方法时，这个方法需要在栈中分配多大的局部变量空间是完全确定的，在运行期间局部变量表的大小不会改变。单个slot的具体大小（占用比特数）由虚拟机在实现时自行规定。
+
+### 动态链接
+
+每一个栈帧内部都包含一个指向运行时常量池或该栈帧所属方法的引用，包含这个引用的目的就是为了支持当前方法的代码能够实现动态链接，如`invokedynamic`指令（支撑java的lambda表达式）。
+
+静态链接：当JVM加载一个类的class文件时，如果一个方法在编译期可知，且运行期保持不变，则在类加载过程的解析阶段将方法的符号引用转换为内存中的直接索引。
+
+动态链接：如果某个方法在编译期无法被确定下来，只能在程序运行期间将符号引用转换为实际地址，则称这种转换动作为动态链接。
+
+静态链接和动态链接也被称为early binding和late binding。
+
+Java中的非虚方法包括final方法，私有方法，静态方法，实例构造器及父类方法，其他方法均为虚方法，即仅在运行期间才能确定调用的实际方法。
+
+
+
+**动态语言和静态语言的区别：**
+
+- 动态语言和静态语言的区别在于其对类型的检查是在编译期还是在运行期，满足前者就是静态类型语言，反之则是动态类型语言。
+- 直白来说 **静态语言是判断变量自身的类型信息；动态语言是判断变量值的类型信息，变量没有类型信息，变量值才有类型信息**，这是动态语言的一个重要特征。
+- Java是静态类型语言（尽管lambda表达式为其增加了动态特性），java script，python是动态语言。
+
+
+
+
+两种异常：
+
+- 线程请求的栈深度大于虚拟机所允许的深度，将抛出`StackOverflowError`
+- 虚拟机栈动态扩展时无法申请到足够的内存，将抛出`OutOfMemoryError`
+
+可以使用`-Xss`选项设置线程的最大栈空间，例如`-Xss128k`。
+
+
+
+## 本地方法栈
+
+本地方法栈和虚拟机栈发挥的作用非常相似，只不过执行的是本地方法而不是Java方法。甚至有的JVM虚拟机直接把本地方法栈和虚拟机栈合二为一。
+
+# 线程公有区域
+
+## 方法区
+
+1. 线程共享内存区域，用于储存已被虚拟机加载的类信息、常量、静态变量，及编译器编译后的代码。
+2. 虽然Java虚拟机规范把方法区描述为堆的一个逻辑部分，但是它却有一个别名叫做Non-Heap（非堆），目的应该是与Java堆区分开来。
+3. 如何实现方法区，属于虚拟机的实现细节，不受虚拟机规范约束。
+4. 方法区主要存放java类定义信息，与垃圾回收关系不大，方法区可以选择不实现垃圾回收,但不是没有垃圾回收。
+5. 方法区域的内存回收目标主要是针对常量池的回收和对类型的卸载。
+6. **可通过参数`-XX:MaxPermSize`设置**
+7. 在`HotSpot`虚拟机中，在JDK7之前，方法区被放在堆的永生代里，在JDK8之后，永生代的概念被废弃，改为用元空间来代替它。元空间位于本地内存之中，但是方法区中的类变量和运行时常量池在物理上仍然位于堆中。
+
+![img](memory.assets/20141013142924359)
+
+设置方法区的大小：
+
+```java
+/**
+ * jdk6/7中：
+ * -XX:PermSize=10m -XX:MaxPermSize=10m
+ *
+ * jdk8中：
+ * -XX:MetaspaceSize=10m -XX:MaxMetaspaceSize=10m
+ *
+ */
+```
+
+Demo:
+
+```java
+public class MethodAreaDemo {
+    public static void main(String[] args) {
+        int x = 500;
+        int y = 100;
+        int a = x / y;
+        int b = 50;
+        System.out.println(a + b);
+    }
+}
+```
+
+```assembly
+ 0 sipush 500
+ 3 istore_1
+ 4 bipush 100
+ 6 istore_2
+ 7 iload_1
+ 8 iload_2
+ 9 idiv
+10 istore_3
+11 bipush 50
+13 istore 4
+15 getstatic #2 <java/lang/System.out>
+18 iload_3
+19 iload 4
+21 iadd
+22 invokevirtual #3 <java/io/PrintStream.println>
+25 return
+```
+
+方法执行过程：
+
+<img src="memory.assets/1728de4f75844d83" alt="img" style="zoom:67%;" />
+
+
+
+## 堆
+
+The heap is the runtime data area from which memory for all class instances and arrays is allocated.
+
+也被称为GC堆(Garbage Collected Heap)。
+
+1. Java堆被所有线程共享，是Java虚拟机所管理的内存中最大的一块，Java堆在虚拟机启动时创建。
+2. Java堆唯一的目的是存放对象实例，几乎所有的对象实例和数组都在这里。
+
+Java堆可以处于物理上不连续的内存空间中，但在逻辑上它应该是连续的。
+
+从分配内存的角度看，所有线程共享的Java堆中可以划分出多个线程私有的分配缓冲区（Thread Local Allocation Buffer，TLAB），以提升对象分配时的效率（因此，不是所有堆内存都是线程共享的）。不过无论从什么角度，无论如何划分，堆中存储的都只能是对象的实例，将Java堆细分的目的只是为了更好地回收内存，或者更快地分配内存。
+
+**可通过参数 `-Xms 初始堆大小`和`-Xmx 最大堆大小`**设置堆的大小。
+
+在JDK7之前，`HotSpot`虚拟机将堆划分成了：
+
+- Young Generation Space：新生代，又被分为Eden区和Survivor区，Young/New。两个Survivor区又叫from和to，在进行垃圾回收时，会将Eden和Survivor1的存活对象全部复制到另一个Survivor2，然后将Eden和Survivor1清空，下次回收时两个Survivor身份转换，这样做的好处是可以在不移动对象的前提下解决内存碎片问题。
+
+- Tenure generation Space：老生代，Old/Tenure。
+
+- Permanent Space：永久代，Perm。
+
+
+JDK8之后，永久代被元数据取代。
+
+配置新生代与老年代在堆结构的占比：
+
+- 默认`-XX：NewRatio=2`，表示新生代占1，老年代占2，新生代占整个堆的1/3。
+- 可以修改`-XX:NewRatio=4`，表示新生代占1，老年代占4，新生代占整个堆的1/5。
+
+对象分配过程：
+
+- 新建的对象先放在Eden区。
+
+- 当Eden区的空间不足时，垃圾回收器将对Eden区进行垃圾回收（Minor GC)，将Eden区和from区的存活对象复制到to区，并清空Eden和from；
+
+- 再次触发垃圾回收时，form和to交换，将新的from和Eden的存活对象移动到to，清空Eden和from。
+
+- 某对象经历15次垃圾回收后会移动到老生代。可以设置参数：`-XX:MaxTenuringThreshold`指定默认次数。
+
+- 老生代内存不足时，触发Major GC，进行老生代的垃圾回收。
+
+- 若养老区执行了Major GC之后内存仍不足，则产生OOM异常。
+
+
+
+
+
+# 面试题
+
+1、**使用PC寄存器存储字节码指令地址有什么用呢？/ 为什么使用PC寄存器记录当前线程的执行地址呢？** 
+
+答：CPU需要不停的切换各个线程，切换回某线程后，可以通过PC的值得知该线程执行到了什么位置；JVM的字节码解释器需要通过改变PC寄存器的值来确定下一条需要执行的字节码指令，通过PC可以实现分支、循环等逻辑。
+
+2、成员变量和局部变量需不需要进行显式初始化？
+
+答：
+
+- 成员变量：在使用前，都经历过默认初始化赋值
+  - static修饰：类变量：类加载linking的准备阶段给类变量默认赋值，然后在初始化阶段给类变量显式赋值即静态代码块赋值；
+  - 不被static修饰：实例变量：随着对象的创建，会在堆空间分配实例变量空间，并进行默认赋值。
+- 局部变量：在使用前，必须要进行显式赋值，否则，编译不通过。
+
+3、垃圾回收是否会涉及到虚拟机栈？
+
+<table>
+<thead>
+<tr>
+<th>内存区块</th>
+<th>Error</th>
+<th>GC</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>程序计数器</td>
+<td>❌</td>
+<td>❌</td>
+</tr>
+<tr>
+<td>本地方法栈</td>
+<td>✅</td>
+<td>❌</td>
+</tr>
+<tr>
+<td>jvm虚拟机栈</td>
+<td>✅</td>
+<td>❌</td>
+</tr>
+<tr>
+<td>堆</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>方法区</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+4、分配的栈内存越大越好么？
+
+答：不是，为单个线程分配过多栈内存会挤占其他线程的内存空间。
+
+5、为什么要用元空间代替永久代？
+
+答：①永久代性能调优困难。
+
+②永久代的空间大小很难提前确定，在某些场景下，如果动态加载类过多，很容易导致OOM异常。而元空间位于本地内存，一般来说，其大小只受本地内存大小限制。
+
+6、为什么把字符串常量放在堆空间？
+
+答：字符串常量位于元空间时，只有在进行永久代的GC时才会回收字符串常量，回收效率太低。
+
+# `HotSpot`虚拟机举例
+
+## 创建对象的方法
+
+- 通过new关键字创建对象
+- Class的`newInstance`方法，利用反射方式创建对象，只能调用类的public无参构造方法。
+- Constructor的`newInstance`方法，利用反射方式创建对象，可以调用任意构造方法。
+- clone方法，需要类实现Cloneable接口，不调用任何构造器。
+- 反序列化，需要类实现Serializable接口。
+
+## 创建对象的步骤
+
+当一个对象被创建时，虚拟机就会为其分配内存来存放对象自己的实例变量及其从父类继承过来的实例变量(即使这些从超类继承过来的实例变量有可能被隐藏也会被分配空间)。在为这些实例变量分配内存的同时，这些实例变量也会被赋予默认值(零值)。在内存分配完成之后，Java虚拟机就会开始对新创建的对象按照程序员的配置进行初始化。
+
+一、检查对象所属类是否被加载过
+
+JVM执行到一条new指令，首先判断指令的参数能否在元空间定位到一个类的符号引用，并检查这个符号引用对应的类是否已经被加载、链接和初始化（即判断类的元信息是否存在）。如果没有，则加载该类，并生成对应的Class类对象。
+
+二、为对象分配内存
+
+计算对象占用空间大小，然后给它分配内存。
+
+① 如果内存工整，使用指针碰撞算法分配内存：即指针一侧是占用的空间，一侧是空闲空间，分配内存时移动指针即可。
+
+②内存不规整时，使用空闲列表方式分配。JVM维护一张表存储空闲内存块，找到一块足够大的空间分配给对象，更新列表。
+
+三、解决并发安全问题
+
+1. Compare and swap：失败重试，区域枷锁，保证指针更新操作的原子性。
+2. TLAB，划分线程专用堆内存。
+
+四、初始化实例变量
+
+给对象的实例变量赋零值。
+
+五、设置对象的对象头
+
+将对象的所属类（即类的元数据信息）、对象的`HashCode`和对象的GC信息、锁信息等数据存储在对象的对象头中。这个过程的具体设置方式取决于JVM实现。
+
+六、执行`init`方法
+
+## 对象的内存布局
+
+在`HotSpot`虚拟机中，对象在堆内存中的存储布局可以划分为三个部分：Header、`InstanceData`和Padding（对齐填充）。
+
+对象头Header部分包括：
+
+- 运行时元数据
+  - 哈希值（ `HashCode` ）
+  - GC分代年龄
+  - 锁状态标志
+  - 线程持有的锁
+  - 偏向线程ID
+  - 偏向时间戳
+- 类型指针：确定该对象所属的类型
+- 说明：如果是数组，还需记录数组的长度
+
+`InstanceData`部分对象中从父类继承来的数据和对象中的数据。
+
+## 对象的访问定位
+
+对象访问方式是由虚拟机决定的，主流的访问方式有句柄和直接指针两种：
+
+1 句柄
+
+使用句柄的方式访问对象时，Java堆中将划分出一块内存来作为句柄池，栈中的引用存储的是对象的句柄地址，而句柄中包含了对象实例数据和类型数据各自具体的地址信息。
+
+![image-20210323203812434](memory.assets/image-20210323203812434.png)
+
+2 直接指针访问
+
+使用直接指针访问时，引用中存储的是对象在堆中的地址，但是需要在对象中存储其类型数据的地址。
+
+![image-20210323203935789](memory.assets/image-20210323203935789.png)
+
+## Java堆溢出
+
+模拟堆溢出，将JVM的堆内存初始值和最大值均设置为20MB。
+
+```java
+package heapMemory;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * VM参数：-Xms20m -Xmx20m -XX:+HeapDumpOnOutOfMemoryError
+ */
+
+public class HeapMem {
+    static class OOMObject {
+
+    }
+    public static void main(String[] args) {
+        List<OOMObject> list = new ArrayList<>();
+        while(true) {
+            list.add(new OOMObject());
+        }
+    }
+}
+```
+
+控制台：
+
+```sh
+java.lang.OutOfMemoryError: Java heap space
+Dumping heap to java_pid12932.hprof ...
+Heap dump file created [28299620 bytes in 0.070 secs]
+Exception in thread "main" java.lang.OutOfMemoryError: Java heap space
+	at java.util.Arrays.copyOf(Arrays.java:3210)
+	at java.util.Arrays.copyOf(Arrays.java:3181)
+	at java.util.ArrayList.grow(ArrayList.java:267)
+	at java.util.ArrayList.ensureExplicitCapacity(ArrayList.java:241)
+	at java.util.ArrayList.ensureCapacityInternal(ArrayList.java:233)
+	at java.util.ArrayList.add(ArrayList.java:464)
+	at heapMemory.HeapMem.main(HeapMem.java:13)
+
+Process finished with exit code 1
+```
+
+利用Java自带的JVisualVM可以查看fprof文件。
+
+![image-20210324104603105](memory.assets/image-20210324104603105.png)
+
+![image-20210324104611378](memory.assets/image-20210324104611378.png)
+
+## 虚拟机栈和本地方法栈溢出
+
+`HotSpot`虚拟机中不区分本地方法栈和虚拟机栈，因此`-Xoss`参数（设置本地方法栈大小）没有作用。栈容量只由`-Xss`参数指定。
+
+虚拟机栈和本地方法栈中存在两种异常：
+
+- 线程请求的栈深度大于虚拟机所允许的深度，将抛出`StackOverflowError`
+- 虚拟机栈动态扩展时无法申请到足够的内存，将抛出`OutOfMemoryError`
+
+《Java虚拟机规范》允许Java虚拟机自行选择是否支持栈的动态扩展，而`HotSpot`虚拟机不支持扩展。因此线程运行前无法申请到足够内存时会出现`OutOfMemoryError`，线程运行时只会因为栈容量无法容纳新的栈帧而出现`StackOverflowError`。
+
+1 测试`StackOverflowError`
+
+使用`-Xss`参数限制栈内存容量
+
+```java
+package vmstack;
+
+public class OverflowError {
+    /**
+     * -Xss128k
+     */
+    public int stacklength = 1;
+    private void go() {
+        stacklength++;
+        go();
+    }
+    public static void main(String[] args) {
+        OverflowError overflowError = new OverflowError();
+        try {
+            overflowError.go();
+        }catch (Throwable e) {
+            System.out.println("stack length" + overflowError.stacklength);
+            throw e;
+        }
+    }
+}
+```
+
+
+
+```shell
+stack length992
+Exception in thread "main" java.lang.StackOverflowError
+	at vmstack.OverflowError.go(OverflowError.java:9)
+	at vmstack.OverflowError.go(OverflowError.java:10)
+	at vmstack.OverflowError.go(OverflowError.java:10)
+	at vmstack.OverflowError.go(OverflowError.java:10)
+	at vmstack.OverflowError.go(OverflowError.java:10)
+	at vmstack.OverflowError.go(OverflowError.java:10)
+```
+
+当栈帧过大时，在不允许动态扩展栈容量的虚拟机上同样会引发`StackOverflowError`。但是，在允许动态扩展栈容量的虚拟机上，栈帧过大引起的是`OutOfMemoryError`。
+
+在`HotSpot`虚拟机不断创建新的线程时，同样会引发`OutOfMemoryError`。出现这种情况时，可以通过较少最大堆和减少栈容量来限制单个线程占用的空间大小，从而提高可创建的线程数。
+
+## 方法区和运行时常量池溢出
+
+`String::intern()`是一个本地方法，作用是：
+
+判断字符串常量是否存在于常量池
+        如果存在
+       判断存在内容是引用还是常量
+            如果是引用
+                 返回引用地址指向堆空间对象
+            如果是常量，
+                 直接返回常量池常量
+  如果不存在
+       将当前对象引用复制到常量池，并且返回当前对象的引用
+
+在JDK6之前，常量池都在永生代中，可以通过-XX:PermSize和-XX:MaxPermSize来限制永生代的大小，然后间接限制常量池的容量。
+
+但是JDK7之后，运行时常量池被移动到了堆之中。
+
+```java
+public class intern {
+    public static void main(String[] args) {
+        String str1 = new StringBuilder("计算机").append("软件").toString();
+        //true
+        System.out.println(str1.intern() == str1);
+        String str2 = new StringBuilder("ja").append("r").toString();
+        //false
+        System.out.println(str2.intern() == str2);
+    }
+}
+```
+
+由于字符串在堆中存储，`str1.intern()`返回str1的地址。
+
+常量池中，有默认字符串常量这样的机制。JVM从启动，到执行main里面的第一条代码，在加载类的过程中，常量池会存入一系列常量，这些常量中包含了"jar"这样的字符串。
+
+**创建字符串分析：**
+
+1 直接使用双引号创建字符串
+
+判断这个常量是否存在于常量池
+  如果存在
+       判断这个常量是堆中对象的引用还是常量
+            如果是引用，返回引用地址指向的堆空间对象，
+            如果是常量，则直接返回常量池常量，
+  如果不存在
+            在常量池中创建该常量，并返回此常量
+
+2 使用new String创建字符串
+
+在堆上创建对象(无论堆上是否存在相同字面量的对象)
+判断常量池中是否存在该字符串
+  如果不存在
+       在常量池上创建常量
+  如果存在
+       不做任何操作
+
+JDK8以后，元空间替换了永生代。
+
+- `-XX:MaxMetaspaceSize`：设置元空间最大值，默认为不限制
+- `-XX:MetaspaceSize`：设置元空间初始大小
+- `-XX:MinMetaspaceFreeRatio`：在垃圾收集之后控制最小的元空间剩余容量的百分比
+
+
+
