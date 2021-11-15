@@ -322,6 +322,8 @@ aliases:
 
 新建SpringBoot项目，添加Web和Spring Configuration Processor依赖。
 
+需要保证 Java Bean 的变量名和配置文件中的 key 相同。
+
 创建目录：
 
 ![image-20200925162626867](SpringBoot.assets/image-20200925162626867.png)
@@ -547,13 +549,15 @@ public class Person {
 - 单个获取用@Value
 - 获取Bean所有属性用@ConfigurationPeoperties
 
-## 4.自定义Bean的数据源
+## 4.自定义 Bean 的数据源
 
-#### @PropertySource
+### @PropertySource
 
-注意：@PropertySource不支持yaml文件
+注意：@PropertySource 不支持 yaml 文件
 
-​			必须设置setter和getter
+​			必须设置 setter 和 getter
+
+也可以使用 `@Value`单个注入
 
 ```java
 package com.liuqi.yaml_example.pojo;
@@ -613,7 +617,7 @@ student.height=190
 student.name=张三
 ```
 
-#### @ImportResource
+### @ImportResource
 
 在SpringBoot项目中导入Spring的配置文件，使其生效(Spring Boot不推荐)
 
@@ -653,6 +657,8 @@ public class MyConfig {
     }
 }
 ```
+
+
 
 ## 5.配置文件占位符
 
@@ -774,6 +780,310 @@ SpringBoot启动时会默认扫描以下位置中的application.properties或者
 这四个路径的优先级由高到低，所有位置的配置文件都会被加载，高优先级的配置会覆盖掉低优先级的配置。
 
 当同一个目录下同时存在properties和yml文件时，会优先加载properties文件里的内容，两个文件中的内容会进行互补操作，即SpringBoot会读取两份文件中的所有内容，会加载所有不同的配置项，汇成一个总的配置，如果同一个配置两个文件中都存在，那么properties中的配置会被加载，而忽略yml文件中的配置。
+
+## 9. 使用 Conditional
+
+使用Profile能根据不同的Profile进行条件装配，但是Profile控制比较糙，如果想要精细控制，例如，配置本地存储，AWS存储和阿里云存储，将来很可能会增加Azure存储等，用Profile就很难实现。
+
+Spring本身提供了条件装配`@Conditional`，但是要自己编写比较复杂的`Condition`来做判断，比较麻烦。Spring Boot则为我们准备好了几个非常有用的条件：
+
+- @ConditionalOnProperty：如果有指定的配置，条件生效；
+- @ConditionalOnBean：如果有指定的Bean，条件生效；
+- @ConditionalOnMissingBean：如果没有指定的Bean，条件生效；
+- @ConditionalOnMissingClass：如果没有指定的Class，条件生效；
+- @ConditionalOnWebApplication：在Web环境中条件生效；
+- @ConditionalOnExpression：根据表达式判断条件是否生效。
+
+我们以最常用的`@ConditionalOnProperty`为例，把上一节的`StorageService`改写如下。首先，定义配置`storage.type=xxx`，用来判断条件，默认为`local`：
+
+```java
+storage:
+  type: ${STORAGE_TYPE:local}
+```
+
+设定为`local`时，启用`LocalStorageService`：
+
+```java
+@Component
+@ConditionalOnProperty(value = "storage.type", havingValue = "local", matchIfMissing = true)
+public class LocalStorageService implements StorageService {
+    ...
+}
+```
+
+设定为`aws`时，启用`AwsStorageService`：
+
+```java
+@Component
+@ConditionalOnProperty(value = "storage.type", havingValue = "aws")
+public class AwsStorageService implements StorageService {
+    ...
+}
+```
+
+设定为`aliyun`时，启用`AliyunStorageService`：
+
+```java
+@Component
+@ConditionalOnProperty(value = "storage.type", havingValue = "aliyun")
+public class AliyunStorageService implements StorageService {
+    ...
+}
+```
+
+注意到`LocalStorageService`的注解，当指定配置为`local`，或者配置不存在，均启用`LocalStorageService`。
+
+可见，Spring Boot提供的条件装配使得应用程序更加具有灵活性。
+
+## 10. 关闭自动配置
+
+Spring Boot大量使用自动配置和默认配置，极大地减少了代码，通常只需要加上几个注解，并按照默认规则设定一下必要的配置即可。例如，配置JDBC，默认情况下，只需要配置一个`spring.datasource`：
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:hsqldb:file:testdb
+    username: sa
+    password:
+    dirver-class-name: org.hsqldb.jdbc.JDBCDriver
+```
+
+Spring Boot就会自动创建出`DataSource`、`JdbcTemplate`、`DataSourceTransactionManager`，非常方便。
+
+但是，有时候，我们又必须要禁用某些自动配置。例如，系统有主从两个数据库，而Spring Boot的自动配置只能配一个，怎么办？
+
+这个时候，针对`DataSource`相关的自动配置，就必须关掉。我们需要用`exclude`指定需要关掉的自动配置：
+
+```java
+@SpringBootApplication
+// 启动自动配置，但排除指定的自动配置:
+@EnableAutoConfiguration(exclude = DataSourceAutoConfiguration.class)
+public class Application {
+    ...
+}
+```
+
+现在，Spring Boot不再给我们自动创建`DataSource`、`JdbcTemplate`和`DataSourceTransactionManager`了，要实现主从数据库支持，怎么办？
+
+让我们一步一步开始编写支持主从数据库的功能。首先，我们需要把主从数据库配置写到`application.yml`中，仍然按照Spring Boot默认的格式写，但`datasource`改为`datasource-master`和`datasource-slave`：
+
+```java
+spring:
+  datasource-master:
+    url: jdbc:hsqldb:file:testdb
+    username: sa
+    password:
+    dirver-class-name: org.hsqldb.jdbc.JDBCDriver
+  datasource-slave:
+    url: jdbc:hsqldb:file:testdb
+    username: sa
+    password:
+    dirver-class-name: org.hsqldb.jdbc.JDBCDriver
+```
+
+注意到两个数据库实际上是同一个库。如果使用MySQL，可以创建一个只读用户，作为`datasource-slave`的用户来模拟一个从库。
+
+下一步，我们分别创建两个HikariCP的`DataSource`：
+
+```java
+public class MasterDataSourceConfiguration {
+    @Bean("masterDataSourceProperties")
+    @ConfigurationProperties("spring.datasource-master")
+    DataSourceProperties dataSourceProperties() {
+        return new DataSourceProperties();
+    }
+
+    @Bean("masterDataSource")
+    DataSource dataSource(@Autowired @Qualifier("masterDataSourceProperties") DataSourceProperties props) {
+        return props.initializeDataSourceBuilder().build();
+    }
+}
+
+public class SlaveDataSourceConfiguration {
+    @Bean("slaveDataSourceProperties")
+    @ConfigurationProperties("spring.datasource-slave")
+    DataSourceProperties dataSourceProperties() {
+        return new DataSourceProperties();
+    }
+
+    @Bean("slaveDataSource")
+    DataSource dataSource(@Autowired @Qualifier("slaveDataSourceProperties") DataSourceProperties props) {
+        return props.initializeDataSourceBuilder().build();
+    }
+}
+```
+
+注意到上述class并未添加`@Configuration`和`@Component`，要使之生效，可以使用`@Import`导入：
+
+```java
+@SpringBootApplication
+@EnableAutoConfiguration(exclude = DataSourceAutoConfiguration.class)
+@Import({ MasterDataSourceConfiguration.class, SlaveDataSourceConfiguration.class})
+public class Application {
+    ...
+}
+```
+
+此外，上述两个`DataSource`的Bean名称分别为`masterDataSource`和`slaveDataSource`，我们还需要一个最终的`@Primary`标注的`DataSource`，它采用Spring提供的`AbstractRoutingDataSource`，代码实现如下：
+
+```java
+class RoutingDataSource extends AbstractRoutingDataSource {
+    @Override
+    protected Object determineCurrentLookupKey() {
+        // 从ThreadLocal中取出key:
+        return RoutingDataSourceContext.getDataSourceRoutingKey();
+    }
+}
+```
+
+`RoutingDataSource`本身并不是真正的`DataSource`，它通过Map关联一组`DataSource`，下面的代码创建了包含两个`DataSource`的`RoutingDataSource`，关联的key分别为`masterDataSource`和`slaveDataSource`：
+
+```java
+public class RoutingDataSourceConfiguration {
+    @Primary
+    @Bean
+    DataSource dataSource(
+            @Autowired @Qualifier("masterDataSource") DataSource masterDataSource,
+            @Autowired @Qualifier("slaveDataSource") DataSource slaveDataSource) {
+        var ds = new RoutingDataSource();
+        // 关联两个DataSource:
+        ds.setTargetDataSources(Map.of(
+                "masterDataSource", masterDataSource,
+                "slaveDataSource", slaveDataSource));
+        // 默认使用masterDataSource:
+        ds.setDefaultTargetDataSource(masterDataSource);
+        return ds;
+    }
+
+    @Bean
+    JdbcTemplate jdbcTemplate(@Autowired DataSource dataSource) {
+        return new JdbcTemplate(dataSource);
+    }
+
+    @Bean
+    DataSourceTransactionManager dataSourceTransactionManager(@Autowired DataSource dataSource) {
+        return new DataSourceTransactionManager(dataSource);
+    }
+}
+```
+
+仍然需要自己创建`JdbcTemplate`和`PlatformTransactionManager`，注入的是标记为`@Primary`的`RoutingDataSource`。
+
+这样，我们通过如下的代码就可以切换`RoutingDataSource`底层使用的真正的`DataSource`：
+
+```java
+RoutingDataSourceContext.setDataSourceRoutingKey("slaveDataSource");
+jdbcTemplate.query(...);
+```
+
+只不过写代码切换DataSource即麻烦又容易出错，更好的方式是通过注解配合AOP实现自动切换，这样，客户端代码实现如下：
+
+```java
+@Controller
+public class UserController {
+	@RoutingWithSlave // <-- 指示在此方法中使用slave数据库
+	@GetMapping("/profile")
+	public ModelAndView profile(HttpSession session) {
+        ...
+    }
+}
+```
+
+实现上述功能需要编写一个`@RoutingWithSlave`注解，一个AOP织入和一个`ThreadLocal`来保存key。由于代码比较简单，这里我们不再详述。
+
+如果我们想要确认是否真的切换了`DataSource`，可以覆写`determineTargetDataSource()`方法并打印出`DataSource`的名称：
+
+```java
+class RoutingDataSource extends AbstractRoutingDataSource {
+    ...
+
+    @Override
+    protected DataSource determineTargetDataSource() {
+        DataSource ds = super.determineTargetDataSource();
+        logger.info("determin target datasource: {}", ds);
+        return ds;
+    }
+}
+```
+
+访问不同的URL，可以在日志中看到两个`DataSource`，分别是`HikariPool-1`和`hikariPool-2`：
+
+```
+2020-06-14 17:55:21.676  INFO 91561 --- [nio-8080-exec-7] c.i.learnjava.config.RoutingDataSource   : determin target datasource: HikariDataSource (HikariPool-1)
+2020-06-14 17:57:08.992  INFO 91561 --- [io-8080-exec-10] c.i.learnjava.config.RoutingDataSource   : determin target datasource: HikariDataSource (HikariPool-2)
+```
+
+我们用一个图来表示创建的DataSource以及相关Bean的关系：
+
+```ascii
+┌────────────────────┐       ┌──────────────────┐
+│@Primary            │<──────│   JdbcTemplate   │
+│RoutingDataSource   │       └──────────────────┘
+│ ┌────────────────┐ │       ┌──────────────────┐
+│ │MasterDataSource│ │<──────│DataSource        │
+│ └────────────────┘ │       │TransactionManager│
+│ ┌────────────────┐ │       └──────────────────┘
+│ │SlaveDataSource │ │
+│ └────────────────┘ │
+└────────────────────┘
+```
+
+注意到`DataSourceTransactionManager`和`JdbcTemplate`引用的都是`RoutingDataSource`，所以，这种设计的一个限制就是：在一个请求中，一旦切换了内部数据源，在同一个事务中，不能再切到另一个，否则，`DataSourceTransactionManager`和`JdbcTemplate`操作的就不是同一个数据库连接。
+
+## 11. 添加 Filter
+
+在 Spring Boot 中，添加一个`Filter`更简单了，可以做到零配置。我们来看看在 Spring Boot 中如何添加`Filter`。
+
+Spring Boot 会自动扫描所有的`FilterRegistrationBean`类型的 Bean，然后，将它们返回的`Filter`自动注册到 Servlet 容器中，无需任何配置。
+
+我们还是以`AuthFilter`为例，首先编写一个`AuthFilterRegistrationBean`，它继承自`FilterRegistrationBean`：
+
+```java
+@Order(10)
+@Component
+public class AuthFilterRegistrationBean extends FilterRegistrationBean<Filter> {
+    @Autowired
+    UserService userService;
+
+    @Override
+    public Filter getFilter() {
+        return new AuthFilter();
+    }
+
+    class AuthFilter implements Filter {
+        ...
+    }
+}
+```
+
+`FilterRegistrationBean`本身不是`Filter`，它实际上是`Filter`的工厂。Spring Boot 会调用`getFilter()`，把返回的`Filter`注册到 Servlet 容器中。因为我们可以在`FilterRegistrationBean`中注入需要的资源，然后，在返回的`AuthFilter`中，这个内部类可以引用外部类的所有字段，自然也包括注入的`UserService`，所以，整个过程完全基于 Spring 的 IoC 容器完成。
+
+再注意到`AuthFilterRegistrationBean`标记了一个`@Order(10)`，因为 Spring Boot 支持给多个`Filter`排序，数字小的在前面，所以，多个`Filter`的顺序是可以固定的。
+
+我们再编写一个`ApiFilter`，专门过滤`/api/*`这样的URL。首先编写一个`ApiFilterRegistrationBean`
+
+```java
+@Order(20)
+@Component
+public class ApiFilterRegistrationBean extends FilterRegistrationBean<Filter> {
+    @PostConstruct
+    public void init() {
+        setFilter(new ApiFilter());
+        setUrlPatterns(List.of("/api/*"));
+    }
+
+    class ApiFilter implements Filter {
+        ...
+    }
+}
+```
+
+这个`ApiFilterRegistrationBean`和`AuthFilterRegistrationBean`又有所不同。因为我们要过滤 URL，而不是针对所有 URL 生效，因此，在`@PostConstruct`方法中，通过`setFilter()`设置一个`Filter`实例后，再调用`setUrlPatterns()`传入要过滤的 URL 列表。
+
+
+
+
+
 # 三、SpringBoot整合Mybatis
 
 首先，创建新的Springboot项目，在依赖中选择SpringWeb和MybtisFrameWork。

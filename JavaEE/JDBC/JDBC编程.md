@@ -136,6 +136,27 @@ INSERT INTO students (name, gender, grade, score) VALUES ('小林', 0, 3, 91);
 INSERT INTO students (name, gender, grade, score) VALUES ('小贝', 0, 3, 77);
 ```
 
+加载驱动：
+
+```java
+/**
+  * 加载驱动有两种方式
+  *
+  * 1：会导致驱动会注册两次，过度依赖于mysql的api，脱离的mysql的开发包，程序则无法编译
+  * 2：驱动只会加载一次，不需要依赖具体的驱动，灵活性高
+  *
+  * 一般使用第二种方式
+  **/
+
+//1.
+DriverManager.registerDriver(new com.mysql.jdbc.Driver());
+
+//2.
+Class.forName("com.mysql.jdbc.Driver");
+```
+
+
+
 ## JDBC 连接
 
 Connection代表一个JDBC连接，它相当于Java程序到数据库的连接（通常是TCP连接）。打开一个Connection时，需要准备URL、用户名和口令，才能成功连接到数据库。
@@ -247,7 +268,9 @@ SELECT * FROM user WHERE login='bob' OR pass=' AND pass=' OR pass=''
 
 要避免 SQL 注入攻击，一个办法是针对所有字符串参数进行转义，但是转义很麻烦，而且需要在任何使用 SQL 的地方增加转义代码。
 
-还有一个办法就是使用`PreparedStatement`。使用`PreparedStatement`可以*完全避免SQL注入*的问题，因为`PreparedStatement`始终使用`?`作为占位符，并且把数据连同 SQL 本身传给数据库，这样可以保证每次传给数据库的 SQL 语句是相同的，只是占位符的数据不同，还能高效利用数据库本身对查询的缓存。上述登录SQL如果用`PreparedStatement`可以改写如下：
+### PreparedStatement
+
+还有一个办法就是使用`PreparedStatement`。使用`PreparedStatement`可以*避免SQL注入*的问题，它使用`?`作为占位符，并对参数中的特殊字符进行转义。`PreparedStatement`每次传给数据库的 SQL 语句是相同的，只是占位符的数据不同，能高效利用数据库本身对查询的缓存。上述登录SQL如果用`PreparedStatement`可以改写如下：
 
 ```java
 User login(String name, String pass) {
@@ -751,3 +774,24 @@ try (Connection conn = ds.getConnection()) { // 在此获取连接
 数据库连接池是一种复用`Connection`的组件，它可以避免反复创建新连接，提高JDBC代码的运行效率；
 
 可以配置连接池的详细参数并监控连接池。
+
+# 常见面试题
+
+**1、JDBC操作数据库的步骤？**
+
+1. 注册数据库驱动。
+2. 建立数据库连接。
+3. 创建一个Statement。
+4. 执行SQL语句。
+5. 处理结果集。
+6. 关闭数据库连接
+
+**2、JDBC中的Statement 和PreparedStatement，CallableStatement的区别？**
+
+区别：
+
+- PreparedStatement是预编译的SQL语句，效率高于Statement。
+- PreparedStatement支持?操作符，相对于Statement更加灵活。
+- PreparedStatement可以防止SQL注入，安全性高于Statement。
+- CallableStatement适用于执行存储过程。
+
