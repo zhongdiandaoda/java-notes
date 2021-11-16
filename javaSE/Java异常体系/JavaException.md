@@ -30,34 +30,7 @@ try-catch 语句中，只有一个 catch 块会被执行。应该先捕获小异
 
 异常类的继承体系：
 
-```ascii
-                     ┌───────────┐
-                     │  Object   │
-                     └───────────┘
-                           ▲
-                           │
-                     ┌───────────┐
-                     │ Throwable │
-                     └───────────┘
-                           ▲
-                 ┌─────────┴─────────┐
-                 │                   │
-           ┌───────────┐       ┌───────────┐
-           │   Error   │       │ Exception │
-           └───────────┘       └───────────┘
-                 ▲                   ▲
-         ┌───────┘              ┌────┴──────────┐
-         │                      │               │
-┌─────────────────┐    ┌─────────────────┐┌───────────┐
-│OutOfMemoryError │... │RuntimeException ││IOException│...
-└─────────────────┘    └─────────────────┘└───────────┘
-                                ▲
-                    ┌───────────┴─────────────┐
-                    │                         │
-         ┌─────────────────────┐ ┌─────────────────────────┐
-         │NullPointerException │ │IllegalArgumentException │...
-         └─────────────────────┘ └─────────────────────────┘
-```
+![image-20211115215910858](JavaException.assets/image-20211115215910858.png)
 
 Throwable 是异常体系的根节点，Error 指的是与 JVM 相关的错误，如系统崩溃，动态链接失败等，这类错误无法回复或不可能捕获，将导致应用程序中断，常见的 Error 如：
 
@@ -83,7 +56,7 @@ Throwable 是异常体系的根节点，Error 指的是与 JVM 相关的错误�
 
 Java规定：
 
-- 必须捕获的异常，包括`Exception`及其子类，但不包括`RuntimeException`及其子类，这种类型的异常称为Checked Exception。
+- 必须捕获的异常，包括`Exception`及其子类，但不包括`RuntimeException`及其子类，这种类型的异常称为Checked Exception，必须在源代码里显式地进行捕获处理，这是编译期检查的一部分。
 - 不需要捕获的异常，包括`Error`及其子类，`RuntimeException`及其子类。
 
 当某个方法的声明中表明可能抛出某种异常时，在方法的调用处必须对异常进行捕获，例如：
@@ -113,6 +86,25 @@ public class Main {
     }
 }
 ```
+
+## 对比Exception和Error
+
+Exception 和 Error 都是继承了 Throwable 类，在 Java 中只有 Throwable 类型的实例才可以被抛出（throw）或者捕获（catch），它是异常处理机制的基本组成类型。
+
+Exception 和 Error 体现了 Java 平台设计者对不同异常情况的分类。Exception 是程序正常运行中，可以预料的意外情况，可能并且应该被捕获，进行相应处理。
+
+Error 是指在正常情况下，不大可能出现的情况，绝大部分的 Error 都会导致程序（比如 JVM 自身）处于非正常的、不可恢复状态。既然是非正常情况，所以不便于也不需要捕获，常见的比如 `OutOfMemoryError` 之类，都是 Error 的子类。
+
+## `NoClassDefFoundError` 和 `ClassNotFoundException` 有什么区别
+
+
+
+## 异常处理机制的问题
+
+- try-catch 代码段会产生额外的性能开销，或者换个角度说，它往往会影响 JVM 对代码进行优化，所以建议仅捕获有必要的代码段，尽量不要一个大的 try 包住整段的代码；与此同时，利用异常控制代码流程，也不是一个好主意，远比我们通常意义上的条件语句（if/else、switch）要低效。
+- Java 每实例化一个 Exception，都会对当时的栈进行快照，这是一个相对比较重的操作。如果发生的非常频繁，这个开销可就不能被忽略了。
+
+
 
 # finally
 
@@ -158,6 +150,21 @@ void process(String file) throws IOException {
 ```
 
 因为方法声明了 throws ，所以可以不写 catch 。
+
+特殊案例：
+
+```java
+try {
+  // do something
+  System.exit(1);
+} finally{
+  System.out.println(“Print from finally”);
+}
+```
+
+这里 finally 中的代码不会被执行。
+
+
 
 # 抛出异常
 
