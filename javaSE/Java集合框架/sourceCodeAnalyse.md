@@ -423,6 +423,10 @@ transient Node<E> last;
 
 ## 1. 存储结构
 
+JDK1.7采用数组+链表；JDK1.8采用数组+链表+红黑树
+
+一般情况下，以默认容量16为例，阈值等于12就扩容，单条链表能达到长度为8的概率是相当低的，除非Hash攻击或者HashMap容量过大出现某些链表过长导致性能急剧下降的问题，红黑树主要是为了结果这种问题。在正常情况下，效率相差并不大。
+
 内部包含了一个 Entry 类型的数组 table。Entry 存储着键值对。它包含了四个字段，从 next 字段我们可以看出 Entry 是一个链表。即数组中的每个位置被当成一个桶，一个桶存放一个链表。HashMap 使用拉链法来解决冲突，同一个链表中存放哈希值和散列桶取模运算结果相同的 Entry。
 
 <div align="center"> <img src="https://cs-notes-1256109796.cos.ap-guangzhou.myqcloud.com/image-20191208234948205.png"/> </div><br>
@@ -432,22 +436,28 @@ transient Entry[] table;
 ```
 
 ```java
-static class Entry<K,V> implements Map.Entry<K,V> {
+static class Node<K,V> implements Map.Entry<K,V> {
+    final int hash;
     final K key;
     V value;
-    Entry<K,V> next;
-    int hash;
+    Node<K,V> next;
 
-    Entry(int h, K k, V v, Entry<K,V> n) {
-        value = v;
-        next = n;
-        key = k;
-        hash = h;
+    Node(int hash, K key, V value, Node<K,V> next) {
+        this.hash = hash;
+        this.key = key;
+        this.value = value;
+        this.next = next;
     }
 
     public final K getKey()        { return key; }
     public final V getValue()      { return value; }
     public final String toString() { return key + "=" + value; }
+
+    public final int hashCode() {
+        //最终调用Object自身的hashCode方法，这是一个Native方法
+        //每个Entry的哈希值是key和value的哈希值异或的结果
+        return Objects.hashCode(key) ^ Objects.hashCode(value);
+    }
 
     public final V setValue(V newValue) {
         V oldValue = value;
@@ -456,29 +466,31 @@ static class Entry<K,V> implements Map.Entry<K,V> {
     }
 
     public final boolean equals(Object o) {
-        if (!(o instanceof Map.Entry))
-            return false;
-        Map.Entry e = (Map.Entry)o;
-        Object k1 = getKey();
-        Object k2 = e.getKey();
-        if (k1 == k2 || (k1 != null && k1.equals(k2))) {
-            Object v1 = getValue();
-            Object v2 = e.getValue();
-            if (v1 == v2 || (v1 != null && v1.equals(v2)))
+        if (o == this)
+            return true;
+        if (o instanceof Map.Entry) {
+            Map.Entry<?,?> e = (Map.Entry<?,?>)o;
+            if (Objects.equals(key, e.getKey()) &&
+                Objects.equals(value, e.getValue()))
                 return true;
         }
         return false;
-    }
-
-    public final int hashCode() {
-        //最终调用Object自身的hashCode方法，这是一个Native方法
-        //每个Entry的哈希值是key和value的哈希值异或的结果
-        return Objects.hashCode(getKey()) ^ Objects.hashCode(getValue());
     }
 }
 ```
 
 HashMap单个桶中存放的链表是一个单链表。
+
+**Jdk1.8**
+
+- hash是final修饰，也就是说hash值一旦确定，就不会再重新计算hash值了。
+- 新增了一个TreeNode节点，为了转换为红黑树。
+
+**Jdk1.7**
+
+- hash是可变的，因为有rehash的操作。
+
+
 
 ## 2. 拉链法的工作原理
 
@@ -502,6 +514,12 @@ map.put("K3", "V3");
 <div align="center"> <img src="https://cs-notes-1256109796.cos.ap-guangzhou.myqcloud.com/image-20191208235258643.png"/> </div>
 
 ## 3. put 操作
+
+**JDK1.8的优化**：当桶中元素较多时，将链表转换为红黑树，加快元素的查找。
+
+
+
+**在链表中插入元素的改动：**
 
 ```java
 public V put(K key, V value) {
@@ -546,6 +564,8 @@ final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
                 if ((e = p.next) == null) {
                     //链表中不存在key相同的节点，则新建节点，插入到链表尾部
                     p.next = newNode(hash, key, value, null);
+                    // 插入元素后如果桶中元素个数大于等于TREEIFY_THRESHOLD - 1
+                    // 则将链表转换为红黑树
                     if (binCount >= TREEIFY_THRESHOLD - 1) // -1 for 1st
                         treeifyBin(tab, hash);
                     break;
@@ -641,6 +661,8 @@ int i = indexFor(hash, table.length);
 
 **4.1 计算 hash 值**  
 
+**JDK1.8对hash方法进行了优化**：加入了扰动函数，让高位也参与运算
+
 ```java
 static final int hash(Object key) {
     int h;
@@ -731,6 +753,18 @@ public HashMap() {
     this.loadFactor = DEFAULT_LOAD_FACTOR; // all other fields defaulted
 }
 ```
+
+**JDK7和JDK8初始化的区别：**
+
+Jdk1.7：
+
+- table是直接赋值给了一个空数组，在第一次put元素时初始化和计算容量。
+- table是单独定义的inflateTable（）初始化方法创建的。
+
+Jdk1.8
+
+- table没有赋值，为null，属于懒加载，构造方法时已经计算好了新的容量位置（大于等于给定容量的最小2的次幂）。
+- table是在第一次调用put时，resize（）方法创建的。
 
 
 
@@ -842,6 +876,14 @@ final Node<K,V>[] resize() {
 
 扩容使用 resize() 实现，需要注意的是，扩容操作同样需要把 oldTable 的所有键值对重新插入 newTable 中，因此这一步是很费时的。
 
+
+
+
+
+
+
+
+
 ## 7. 扩容-重新计算桶下标
 
 在进行扩容时，需要把键值对重新计算桶下标，从而放到对应的桶上。在前面提到，HashMap 使用 hash%capacity 来确定桶下标。HashMap capacity 为 2 的 n 次方这一特点能够极大降低重新计算桶下标操作的复杂度。
@@ -858,7 +900,15 @@ new capacity : 00100000
 - 为 0，那么 hash%00010000 = hash%00100000，桶位置和原来一致；
 - 为 1，hash%00010000 = hash%00100000 + 16，桶位置是原位置 + 16。
 
-## 8. 计算数组容量
+## 8 缩容
+
+`UNTREEIFY_THRESHOLD` 红黑树链化阙值： 默认值为 `6` 。 表示在进行扩容期间，单个[Node节点](https://www.zhihu.com/search?q=Node节点&search_source=Entity&hybrid_search_source=Entity&hybrid_search_extra={"sourceType"%3A"article"%2C"sourceId"%3A127147909})下的红黑树节点的个数小于6时候，会将红黑树转化成为链表。
+
+
+
+
+
+## 9. 计算数组容量
 
 HashMap 构造函数允许用户传入的容量不是 2 的 n 次方，因为它可以自动地将传入的容量转换为 2 的 n 次方。
 
@@ -893,14 +943,14 @@ static final int tableSizeFor(int cap) {
 }
 ```
 
-## 9. 与 Hashtable 的比较
+## 10. 与 Hashtable 的比较
 
 - Hashtable 使用 synchronized 来进行同步。
 - HashMap 可以插入键为 null 的 Entry。
 - HashMap 的迭代器是 fail-fast 迭代器。
 - HashMap 不能保证随着时间的推移 Map 中的元素次序是不变的。
 
-## 10. 面试题
+## 11. 面试题
 
 1、“你知道HashMap的工作原理吗？” “你知道HashMap的get()方法的工作原理吗？”
 
@@ -925,6 +975,14 @@ static final int tableSizeFor(int cap) {
 `if ((p = tab[i = (n - 1) & hash]) == null)	tab[i] = newNode(hash, key, value, null);`
 
 后由于时间片耗尽导致被挂起，而线程B得到时间片后在该下标处插入了元素，完成了正常的插入，然后线程A获得时间片，由于之前已经进行了hash碰撞的判断，所有此时不会再进行判断，而是直接进行插入，这就导致了线程B插入的数据被线程A覆盖了，从而线程不安全。
+
+6、一般用什么作为key值？
+
+⼀般⽤Integer、String这种不可变类当HashMap当key，⽽且String最为常⽤。
+(1)因为字符串是不可变的，所以在它创建的时候hashcode就被缓存了，不需要重新计算。 这就使得字符串很适合作为Map中的键，字符串的处理速度要快过其它的键对象。 这就是HashMap中的键往往都使⽤字符串。
+(2)因为获取对象的时候要⽤到equals()和hashCode()⽅法，那么键对象正确的重写这两个⽅法是⾮常重要的,这些类已 经很规范的覆写了hashCode()以及equals()⽅法。
+
+
 
 # ConcurrentHashMap
 
