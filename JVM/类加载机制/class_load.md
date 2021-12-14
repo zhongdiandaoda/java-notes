@@ -364,6 +364,10 @@ public class Test {
 
 # 类加载器
 
+jvm允许开发人员自定义类加载器，以便让应用程序自己决定如何去获取所需的二进制流！
+
+这是一项创新，是为了Java Applet创造的，不过Java Applet已经死掉，但自定义类加载器却在类层次划分，代码加密，远程调用等方面大放异彩。
+
 ## 类与类加载器
 
 对于任意一个类，都必须由它的类加载器和类本身共同确立其在Java虚拟机中的唯一性，每一个类加载器，都有一个独立的类名称空间。也就是说，比较两个类是否相等（包括类的Class对象的equals方法，isInstance方法和isAssignableFrom方法），只有在这两个类是由同一个类加载器加载的前提下才有意义。
@@ -416,8 +420,8 @@ true
 站在开发人员的角度，类加载器可以分为三种：
 
 - 启动类加载器（Bootstrap Class Loader）：使用C++代码实现的加载器，用以加载存放在{JAVA_HOME}/lib目录下，JVM能够识别（按照文件名识别，如rt.jar、tool.jar）的系统类库。启动类加载器不能被Java代码访问到，但是，可以查询某个类是否被引导类加载器加载过。用户在编写自定义类加载器时，如果需要把加载请求委派给引导类加载器去处理，那直接使用null代替即可。当JVM系统启动的时候，引导类加载器会将系统类库中的相关数据加载到 JVM内存的方法区中。
-- 扩展类加载器（Extension Class Loader）：该加载器用于加载java的拓展类 ，拓展类一般放在{JRE_HOME}/lib/ext/ 目录下，用来提供除了系统类之外的额外功能。
-- 应用程序类加载器（Application Class Loader）：该类加载器用于加载用户代码，是用户代码的入口。由于应用程序类加载器是getSystemClassLoader()方法的返回值，因此也叫系统类加载器。
+- 扩展类加载器（Extension Class Loader）：该加载器用于加载java的拓展类 ，拓展类一般放在{JRE_HOME}/lib/ext/ 目录下，用来提供除了系统类之外的额外功能，使用 Java 实现。
+- 应用程序类加载器（Application Class Loader）：该类加载器用于加载用户代码，是用户代码的入口。由于应用程序类加载器是getSystemClassLoader()方法的返回值，因此也叫系统类加载器，使用 Java 实现。
 
 双亲委派模型：
 
@@ -469,6 +473,14 @@ protected Class<?> loadClass(String name, boolean resolve)
         }
     }
 ```
+
+## 破坏双亲委派模型
+
+
+
+
+
+
 
 # Demo
 
