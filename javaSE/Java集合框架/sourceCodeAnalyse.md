@@ -515,9 +515,7 @@ map.put("K3", "V3");
 
 ## 3. put 操作
 
-**JDK1.8的优化**：当桶中元素较多时，将链表转换为红黑树，加快元素的查找。
-
-
+**JDK1.8的优化**：当桶中元素较多时，将链表转换为红黑树，加快元素的查找；元素不存在时，尾插法插入元素
 
 **在链表中插入元素的改动：**
 
@@ -878,12 +876,6 @@ final Node<K,V>[] resize() {
 
 
 
-
-
-
-
-
-
 ## 7. 扩容-重新计算桶下标
 
 在进行扩容时，需要把键值对重新计算桶下标，从而放到对应的桶上。在前面提到，HashMap 使用 hash%capacity 来确定桶下标。HashMap capacity 为 2 的 n 次方这一特点能够极大降低重新计算桶下标操作的复杂度。
@@ -900,15 +892,9 @@ new capacity : 00100000
 - 为 0，那么 hash%00010000 = hash%00100000，桶位置和原来一致；
 - 为 1，hash%00010000 = hash%00100000 + 16，桶位置是原位置 + 16。
 
-## 8 缩容
-
-`UNTREEIFY_THRESHOLD` 红黑树链化阙值： 默认值为 `6` 。 表示在进行扩容期间，单个[Node节点](https://www.zhihu.com/search?q=Node节点&search_source=Entity&hybrid_search_source=Entity&hybrid_search_extra={"sourceType"%3A"article"%2C"sourceId"%3A127147909})下的红黑树节点的个数小于6时候，会将红黑树转化成为链表。
 
 
-
-
-
-## 9. 计算数组容量
+## 8. 计算数组容量
 
 HashMap 构造函数允许用户传入的容量不是 2 的 n 次方，因为它可以自动地将传入的容量转换为 2 的 n 次方。
 
@@ -943,14 +929,53 @@ static final int tableSizeFor(int cap) {
 }
 ```
 
-## 10. 与 Hashtable 的比较
+## 9. 与 Hashtable 的比较
 
 - Hashtable 使用 synchronized 来进行同步。
 - HashMap 可以插入键为 null 的 Entry。
 - HashMap 的迭代器是 fail-fast 迭代器。
 - HashMap 不能保证随着时间的推移 Map 中的元素次序是不变的。
 
-## 11. 面试题
+## 10 遍历
+
+遍历所有不为空的桶
+
+![img](sourceCodeAnalyse.assets/1460000012926732.jpeg)
+
+
+
+## 11 链表的树化
+
+在扩容过程中，树化要满足两个条件：
+
+1. 链表长度大于等于 TREEIFY_THRESHOLD
+2. 桶数组容量大于等于 MIN_TREEIFY_CAPACITY
+
+HashMap 在设计之初，并没有考虑到以后会引入红黑树进行优化。所以并没有像 TreeMap 那样，要求键类实现 comparable 接口或提供相应的比较器。但由于树化过程需要比较两个键对象的大小，在键类没有实现 comparable 接口的情况下，怎么比较键与键之间的大小了就成了一个棘手的问题。为了解决这个问题，HashMap 是做了三步处理，确保可以比较出两个键的大小，如下：
+
+1. 比较键与键之间 hash 的大小，如果 hash 相同，继续往下比较
+2. 检测键类是否实现了 Comparable 接口，如果实现调用 compareTo 方法进行比较
+3. 如果仍未比较出大小，就需要进行仲裁了，仲裁方法为 tieBreakOrder
+
+![img](sourceCodeAnalyse.assets/1460000012926741.jpeg)
+
+![img](sourceCodeAnalyse.assets/1460000012926742.jpeg)
+
+
+
+红黑树拆分：红黑树保留了链表中的顺序，因此红黑树的链化过程与扩容后链表重新映射的代码类似
+
+红黑树链化：转换为Node链表
+
+## 12 删除
+
+HashMap 的删除操作并不复杂，仅需三个步骤即可完成。第一步是定位桶位置，第二步遍历链表并找到键值相等的节点，第三步删除节点。
+
+**删除后需要修复链表或红黑树**
+
+
+
+# 面试题
 
 1、“你知道HashMap的工作原理吗？” “你知道HashMap的get()方法的工作原理吗？”
 
@@ -968,148 +993,91 @@ static final int tableSizeFor(int cap) {
 
 　　当一个map填满了75%的bucket时候，和其它集合类(如ArrayList等)一样，将会创建原来HashMap大小的两倍的bucket数组，来重新调整map的大小，并将原来的对象放入新的bucket数组中。这个过程叫作rehashing，因为它调用hash方法找到新的bucket位置。
 
-5、“你了解重新调整HashMap大小存在什么问题吗？”
-
-假设两个线程A、B都在进行put操作，并且hash函数计算出的插入下标是相同的，当线程A执行完
-
-`if ((p = tab[i = (n - 1) & hash]) == null)	tab[i] = newNode(hash, key, value, null);`
-
-后由于时间片耗尽导致被挂起，而线程B得到时间片后在该下标处插入了元素，完成了正常的插入，然后线程A获得时间片，由于之前已经进行了hash碰撞的判断，所有此时不会再进行判断，而是直接进行插入，这就导致了线程B插入的数据被线程A覆盖了，从而线程不安全。
-
-6、一般用什么作为key值？
+5、一般用什么作为key值？
 
 ⼀般⽤Integer、String这种不可变类当HashMap当key，⽽且String最为常⽤。
-(1)因为字符串是不可变的，所以在它创建的时候hashcode就被缓存了，不需要重新计算。 这就使得字符串很适合作为Map中的键，字符串的处理速度要快过其它的键对象。 这就是HashMap中的键往往都使⽤字符串。
-(2)因为获取对象的时候要⽤到equals()和hashCode()⽅法，那么键对象正确的重写这两个⽅法是⾮常重要的,这些类已 经很规范的覆写了hashCode()以及equals()⽅法。
+
+- 因为字符串是不可变的，所以在它创建的时候hashcode就被缓存了，不需要重新计算。 这就使得字符串很适合作为Map中的键，字符串的处理速度要快过其它的键对象。 这就是HashMap中的键往往都使⽤字符串。
+
+- 因为获取对象的时候要⽤到equals()和hashCode()⽅法，那么键对象正确的重写这两个⽅法是⾮常重要的,这些类已 经很规范的覆写了hashCode()以及equals()⽅法。
+
+**6、HashMap为什么是线程不安全的？**
+
+JDK7引发的线程不安全问题：
+
+```java
+void transfer(Entry[] newTable, boolean rehash) {
+    int newCapacity = newTable.length;
+    for (Entry<K,V> e : table) {
+        while(null != e) {
+            Entry<K,V> next = e.next;
+            if (rehash) {
+                e.hash = null == e.key ? 0 : hash(e.key);
+            }
+            int i = indexFor(e.hash, newCapacity);
+            
+            // 导致线程不安全的操作
+            e.next = newTable[i];
+            newTable[i] = e;
+
+            
+            e = next;
+        }
+    }
+}
+```
+
+扩容函数调用了tranfer方法，重新定位每个桶的下标，并采用头插法迁移到新数组中。头插法会将链表的顺序翻转，多线程环境下可能形成死循环。
+
+(A对e.next作出修改，未刷入主存，B重定位完成，A继续执行，产生死循环)
+
+
+
+JDK8引发的线程不安全问题：
+
+```java
+final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
+               boolean evict) {
+    Node<K,V>[] tab; Node<K,V> p; int n, i;
+    if ((tab = table) == null || (n = tab.length) == 0)
+        n = (tab = resize()).length;
+    if ((p = tab[i = (n - 1) & hash]) == null)
+        // 此处阻塞时，会产生覆盖数据问题
+        tab[i] = newNode(hash, key, value, null);
+    ...//省略部分代码
+
+        ++modCount;  //此操作不是原子操作
+    if (++size > threshold)
+        resize();
+    afterNodeInsertion(evict);
+    return null;
+}
+```
+
+1. ++modCount不是原子操作，多线程环境下导致计算错误时，产生线程安全问题（modCount的作用是防止iterator遍历过程中对map进行了修改）。
+
+2. 当线程a和b插入元素的哈希值相同，a执行到第八行阻塞，b在tab[i]插入数据，随后a恢复执行，则数据将被覆盖。
+
+3. 如果不停地往 map 中添加新的数据，它便会在合适的时机进行扩容。而在扩容期间，它会新建一个新的空数组，并且用旧的项填充到这个新的数组中去。那么，在这个填充的过程中，如果有线程获取值，很可能会取到 null 值，而不是我们所希望的、原来添加的值。
+4. 无法保证可见性，线程A向Map中添加了一个元素后，线程B不一定能看到（先将对象的引用复制到线程本地栈，将next修改为一个值，随后flush到主存中，主存中的next指针可能仍然为null）。
+
+
 
 
 
 # ConcurrentHashMap
 
-## 1. 存储结构
+# 结构
 
-<div align="center"> <img src="https://cs-notes-1256109796.cos.ap-guangzhou.myqcloud.com/image-20191209001038024.png"/> </div><br>
+![1600862074854](sourceCodeAnalyse.assets/a5bf1c7c6a864e3cab0850e5e87e61e9tplv-k3u1fbpfcp-watermark.awebp)
 
-```java
-static final class HashEntry<K,V> {
-    final int hash;
-    final K key;
-    volatile V value;
-    volatile HashEntry<K,V> next;
-}
-```
 
-ConcurrentHashMap 和 HashMap 实现上类似，最主要的差别是 ConcurrentHashMap 采用了分段锁（Segment），每个分段锁维护着几个桶（HashEntry），多个线程可以同时访问不同分段锁上的桶，从而使其并发度更高（并发度就是 Segment 的个数）。
 
-Segment 继承自 ReentrantLock。
 
-```java
-static final class Segment<K,V> extends ReentrantLock implements Serializable {
 
-    private static final long serialVersionUID = 2249069246763182397L;
 
-    static final int MAX_SCAN_RETRIES =
-        Runtime.getRuntime().availableProcessors() > 1 ? 64 : 1;
 
-    transient volatile HashEntry<K,V>[] table;
 
-    transient int count;
-
-    transient int modCount;
-
-    transient int threshold;
-
-    final float loadFactor;
-}
-```
-
-```java
-final Segment<K,V>[] segments;
-```
-
-默认的并发级别为 16，也就是说默认创建 16 个 Segment。
-
-```java
-static final int DEFAULT_CONCURRENCY_LEVEL = 16;
-```
-
-## 2. size 操作
-
-每个 Segment 维护了一个 count 变量来统计该 Segment 中的键值对个数。
-
-```java
-/**
- * The number of elements. Accessed only either within locks
- * or among other volatile reads that maintain visibility.
- */
-transient int count;
-```
-
-在执行 size 操作时，需要遍历所有 Segment 然后把 count 累计起来。
-
-ConcurrentHashMap 在执行 size 操作时先尝试不加锁，如果连续两次不加锁操作得到的结果一致，那么可以认为这个结果是正确的。
-
-尝试次数使用 RETRIES_BEFORE_LOCK 定义，该值为 2，retries 初始值为 -1，因此尝试次数为 3。
-
-如果尝试的次数超过 3 次，就需要对每个 Segment 加锁。
-
-```java
-/**
- * Number of unsynchronized retries in size and containsValue
- * methods before resorting to locking. This is used to avoid
- * unbounded retries if tables undergo continuous modification
- * which would make it impossible to obtain an accurate result.
- */
-static final int RETRIES_BEFORE_LOCK = 2;
-
-public int size() {
-    // Try a few times to get accurate count. On failure due to
-    // continuous async changes in table, resort to locking.
-    final Segment<K,V>[] segments = this.segments;
-    int size;
-    boolean overflow; // true if size overflows 32 bits
-    long sum;         // sum of modCounts
-    long last = 0L;   // previous sum
-    int retries = -1; // first iteration isn't retry
-    try {
-        for (;;) {
-            // 超过尝试次数，则对每个 Segment 加锁
-            if (retries++ == RETRIES_BEFORE_LOCK) {
-                for (int j = 0; j < segments.length; ++j)
-                    ensureSegment(j).lock(); // force creation
-            }
-            sum = 0L;
-            size = 0;
-            overflow = false;
-            for (int j = 0; j < segments.length; ++j) {
-                Segment<K,V> seg = segmentAt(segments, j);
-                if (seg != null) {
-                    sum += seg.modCount;
-                    int c = seg.count;
-                    if (c < 0 || (size += c) < 0)
-                        overflow = true;
-                }
-            }
-            // 连续两次得到的结果一致，则认为这个结果是正确的
-            if (sum == last)
-                break;
-            last = sum;
-        }
-    } finally {
-        if (retries > RETRIES_BEFORE_LOCK) {
-            for (int j = 0; j < segments.length; ++j)
-                segmentAt(segments, j).unlock();
-        }
-    }
-    return overflow ? Integer.MAX_VALUE : size;
-}
-```
-
-## 3. JDK 1.8 的改动
-
-JDK 1.8 使用了 CAS 操作来支持更高的并发度，在 CAS 操作失败时使用内置锁 synchronized。
-
-并且 JDK 1.8 的实现也在链表过长时会转换为红黑树。
 
 # TreeMap
 
