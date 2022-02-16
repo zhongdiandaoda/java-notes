@@ -1067,11 +1067,297 @@ final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
 
 # ConcurrentHashMap
 
+## 结构
+
 ![1600862074854](sourceCodeAnalyse.assets/a5bf1c7c6a864e3cab0850e5e87e61e9tplv-k3u1fbpfcp-watermark.awebp)
 
+## 常量
+
+```java
+/**
+ * 容量的最大值
+ */
+private static final int MAXIMUM_CAPACITY = 1 << 30;
+
+/**
+ * 容量的默认值
+ */
+private static final int DEFAULT_CAPACITY = 16;
+
+/**
+ * 数组的最大容量，这个在ArrayList里也有，大部分人赞同的答案是：
+ * 减少一些机器发生内存溢出的可能性【https://www.zhihu.com/question/27999759】
+ */
+static final int MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8;
+
+/**
+ * 这个哈希表默认的并发级别，用于兼容以前的版本
+ */
+private static final int DEFAULT_CONCURRENCY_LEVEL = 16;
+
+/**
+ * 负载因子
+ */
+private static final float LOAD_FACTOR = 0.75f;
+
+/**
+ * 链表转换为树的阈值
+ */
+static final int TREEIFY_THRESHOLD = 8;
+
+/**
+ * 树转换为链表的阈值
+ */
+static final int UNTREEIFY_THRESHOLD = 6;
+
+/**
+ * 在链表转换为树之前，当前槽节点的数量必须大于这个值
+ */
+static final int MIN_TREEIFY_CAPACITY = 64;
+
+/**
+ * 在树转换为链表之前，当前槽节点的数量必须不大于这个值
+ */
+private static final int MIN_TRANSFER_STRIDE = 16;
+
+/**
+ * 用于在扩容时生成随机数的种子
+ */
+private static final int RESIZE_STAMP_BITS = 16;
+
+/**
+ * 并行进行扩容的最大线程数
+ */
+private static final int MAX_RESIZERS = (1 << (32 - RESIZE_STAMP_BITS)) - 1;
+
+/**
+ * 记录sizeCtl大小所需要进行的偏移位数【现在没看懂什么意思】
+ */
+private static final int RESIZE_STAMP_SHIFT = 32 - RESIZE_STAMP_BITS;
 
 
+static final int MOVED     = -1; // 标识 ForwardingNode 节点
+static final int TREEBIN   = -2; // 标识红黑树根节点
+static final int RESERVED  = -3; // 标识 ReservationNode 节点
+static final int HASH_BITS = 0x7fffffff; // 标识普通节点
 
+/** CPU的核心数量，用于扩容时使用 */
+static final int NCPU = Runtime.getRuntime().availableProcessors();
+```
+
+## 变量
+
+```java
+/**
+ * Node 数组
+ */
+transient volatile Node<K,V>[] table;
+
+/**
+ * 扩容过程中使用的 Node 数组，采用渐进式数据迁移的方式
+ */
+private transient volatile Node<K,V>[] nextTable;
+
+/**
+ * 基础计数器，主要在无线程竞争的条件下使用，在 table 初始化时也被用来做 fallback 操作，通过 CAS 进行更新
+ */
+private transient volatile long baseCount;
+
+/**
+ * table 初始化和扩容的状态标识：
+ * >0:数组初始化后的容量
+ * 0:默认初始值
+ * -1:单线程扩容
+ * -1(1 + nThread):多线程扩容
+ */
+private transient volatile int sizeCtl;
+
+/**
+ * 扩容时另一个表的下标
+ */
+private transient volatile int transferIndex;
+
+/**
+ * 在扩容或创建 CounterCells 时的自旋锁.
+ */
+private transient volatile int cellsBusy;
+
+/**
+ * CounterCell 数组，用于热点数据分段计算，跟 LongAddr 的 Cell 差不多
+ */
+private transient volatile CounterCell[] counterCells;
+```
+
+## put方法
+
+```java
+final V putVal(K key, V value, boolean onlyIfAbsent) {
+    if (key == null || value == null) throw new NullPointerException();
+    // 根据 key 计算出 hash 值
+    int hash = spread(key.hashCode());
+    int binCount = 0;
+    // 一直循环，直到break
+    for (Node<K,V>[] tab = table;;) {
+        Node<K,V> f; 
+        int n, i, fh; 
+        // 如果数组为空就先初始化数组
+        if (tab == null || (n = tab.length) == 0)
+            tab = initTable();
+        // 下标的计算方式：(table.length - 1) & key.hashCode
+        // unsafe获取i处的数据
+        // 如果计算出的下标的槽的元素为空，执行CAS添加元素
+        else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
+            // 当向一个空bin添加元素时使用无锁的CAS
+            // 如果失败，继续循环CAS
+            if (casTabAt(tab, i, null, new Node<K,V>(hash, key, value)))
+                break;                   // no lock when adding to empty bin
+        }
+        // 判断槽的状态是否为 MOVED，即该节点是一个 Fowarding 节点，f的hash值为-1
+        // 正在进行扩容操作，尝试协助数据迁移。
+        else if ((fh = f.hash) == MOVED)
+            tab = helpTransfer(tab, f);
+        else {
+            V oldVal = null;
+            // 加锁执行添加元素操作
+            // 锁f是通过tabAt方法获取的
+            // 也就是说，当发生hash碰撞时，会以链表的头结点作为锁
+            synchronized (f) {
+                // 这个检查的原因在于：
+                // tab引用的是成员变量table，table在发生了rehash之后，原来index上的Node可能会变
+                // 这里就是为了确保在put的过程中，没有受到rehash的影响，指定index上的Node仍然是f
+                // 如果不是f，那这个锁就没有意义了
+                if (tabAt(tab, i) == f) {
+                    // 确保put没有发生在扩容的过程中，fh=-1时表示正在扩容
+                    if (fh >= 0) {
+                        binCount = 1;
+                        // 遍历链表，如果链表中存在和 key 的 hash 值相同的元素，替换该节点的 value 值
+                        for (Node<K,V> e = f;; ++binCount) {
+                            K ek;
+                            if (e.hash == hash &&
+                                ((ek = e.key) == key ||
+                                 (ek != null && key.equals(ek)))) {
+                                oldVal = e.val;
+                                if (!onlyIfAbsent)
+                                    e.val = value;
+                                break;
+                            }
+                            Node<K,V> pred = e;
+                            if ((e = e.next) == null) {
+                                pred.next = new Node<K,V>(hash, key, value);
+                                break;
+                            }
+                        }
+                    }
+                    // 如果是红黑树，执行红黑树的插入操作
+                    else if (f instanceof TreeBin) {
+                        Node<K,V> p;
+                        binCount = 2;
+                        // 将 key-value 值放入红黑树中
+                        if ((p = ((TreeBin<K,V>)f).putTreeVal(hash, key,
+                                                       value)) != null) {
+                            oldVal = p.val;
+                            if (!onlyIfAbsent)
+                                p.val = value;
+                        }
+                    }
+                }
+            }
+            // 判断要不要链表转红黑树
+            if (binCount != 0) {
+                // TREEIFY_THRESHOLD = 8
+                if (binCount >= TREEIFY_THRESHOLD)
+                    treeifyBin(tab, i);
+                if (oldVal != null)
+                    return oldVal;
+                break;
+            }
+        }
+    }
+    addCount(1L, binCount);
+    return null;
+}
+```
+
+## get方法
+
+```java
+/**
+ * Returns the value to which the specified key is mapped,
+ * or {@code null} if this map contains no mapping for the key.
+ *
+ * <p>More formally, if this map contains a mapping from a key
+ * {@code k} to a value {@code v} such that {@code key.equals(k)},
+ * then this method returns {@code v}; otherwise it returns
+ * {@code null}.  (There can be at most one such mapping.)
+ *
+ * @throws NullPointerException if the specified key is null
+ */
+public V get(Object key) {
+    Node<K, V>[] tab; Node<K, V> e; Node<K, V> p;
+    int n; int eh; K ek;
+    int h = spread(key.hashCode());
+    tab = table; n = tab.length; e = tabAt(tab, (n - 1) & h);
+    if (tab != null && n > 0 && e != null) {
+        eh = e.hash;
+        if (eh == h) {
+            ek = e.key;
+            if (ek == key || (ek != null && key.equals(ek))) {
+                return e.val;
+            }
+        } else if (eh < 0) {
+            p = e.find(h, key);
+            return p != null ? p.val : null;
+        }
+        e = e.next;
+        while (e != null) {
+            ek = e.key;
+            if (e.hash == h && (ek == key || (ek != null && key.equals(ek)))) {
+                return e.val;
+            }
+            e = e.next;
+        }
+    }
+    return null;
+}
+```
+
+通过上面的源码，我们可以看到，在 `ConcurrentHashMap` 类的 `get` 方法并没有任何加锁操作，那是如何来保证线程安全的。
+
+```java
+/**
+ * Key-value entry.  This class is never exported out as a
+ * user-mutable Map.Entry (i.e., one supporting setValue; see
+ * MapEntry below), but can be used for read-only traversals used
+ * in bulk tasks.  Subclasses of Node with a negative hash field
+ * are special, and contain null keys and values (but are never
+ * exported).  Otherwise, keys and vals are never null.
+ */
+static class Node<K,V> implements Map.Entry<K,V> {
+    final int hash;
+    final K key;
+    volatile V val;
+    volatile Node<K,V> next;
+
+    Node(int hash, K key, V val, Node<K,V> next) {
+        this.hash = hash;
+        this.key = key;
+        this.val = val;
+        this.next = next;
+    }
+
+    public final K getKey()       { return key; }
+    public final V getValue()     { return val; }
+    public final int hashCode()   { return key.hashCode() ^ val.hashCode(); }
+    public final String toString(){ return key + "=" + val; }
+    public final V setValue(V value) {
+        throw new UnsupportedOperationException();
+    }
+
+    ... ...
+}
+```
+
+`get` 操作可以无锁是由于 `Node` 的元素 `val` 和指针 `next` 是用 `volatile` 修饰的，在多线程环境下一个线程修改结点的 `val` 或者新增节点的时候保证对另外一个线程可见的。
 
 
 

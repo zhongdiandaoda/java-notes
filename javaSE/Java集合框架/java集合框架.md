@@ -693,6 +693,12 @@ LinkedList与 ArrayList、ArrayDeque的实现机制完全不同，ArrayList、Ar
 
 对于所有的内部基于数组的集合实现，例如ArrayList、ArrayDeque等，使用随机访问的性能比使用Iterator迭代访问的性能要好，因为随机访问会被映射成对数组元素的访问。
 
+
+
+## tips
+
+**ArrayDeque和LinkedList均实现了Queue接口，但是ArrayDeque不允许插入null元素，需要插入null元素时，必须使用LinkedList。**
+
 # 线性表的性能分析
 
 Java提供的List是一个线性表接口，而ArrayList、Linkedlist 是线性表的两种典型实现：基于数组的线性表和基于链表的线性表。Queue 是一个队列接口，Deque是双端队列(既可作为队列使用，也可作为栈使用)。接下来对各种实现类的性能进行分析：
