@@ -1067,8 +1067,6 @@ final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
 
 # ConcurrentHashMap
 
-# 结构
-
 ![1600862074854](sourceCodeAnalyse.assets/a5bf1c7c6a864e3cab0850e5e87e61e9tplv-k3u1fbpfcp-watermark.awebp)
 
 
