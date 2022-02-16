@@ -1192,11 +1192,12 @@ private transient volatile CounterCell[] counterCells;
 
 ```java
 final V putVal(K key, V value, boolean onlyIfAbsent) {
+    // 1.不允许null作为key或value（不同于HashMap）
     if (key == null || value == null) throw new NullPointerException();
     // 根据 key 计算出 hash 值
     int hash = spread(key.hashCode());
     int binCount = 0;
-    // 一直循环，直到break
+    // 2.一直循环，直到break
     for (Node<K,V>[] tab = table;;) {
         Node<K,V> f; 
         int n, i, fh; 
@@ -1208,7 +1209,7 @@ final V putVal(K key, V value, boolean onlyIfAbsent) {
         // 如果计算出的下标的槽的元素为空，执行CAS添加元素
         else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
             // 当向一个空bin添加元素时使用无锁的CAS
-            // 如果失败，继续循环CAS
+            // 如果成功，break，否则，继续执行外层for循环
             if (casTabAt(tab, i, null, new Node<K,V>(hash, key, value)))
                 break;                   // no lock when adding to empty bin
         }
@@ -1277,6 +1278,10 @@ final V putVal(K key, V value, boolean onlyIfAbsent) {
     return null;
 }
 ```
+
+> ConcurrentHashMap 不支持 key 和 value 为 null 的原因：`concurrenthashmap`是用于多线程的，当 get 得到了 null，不能判断到底是映射的 value 为 null，还是因为没有找到对应的 key 而为 null。
+>
+> HashMap是非并发的，可以通过contains(key)来做这个判断。而支持并发的Map在调用m.containskey和m.get后，m可能已经不同了。
 
 ## get方法
 
@@ -1359,9 +1364,131 @@ static class Node<K,V> implements Map.Entry<K,V> {
 
 `get` 操作可以无锁是由于 `Node` 的元素 `val` 和指针 `next` 是用 `volatile` 修饰的，在多线程环境下一个线程修改结点的 `val` 或者新增节点的时候保证对另外一个线程可见的。
 
+## 实现原理
 
+JDK1.8：synchronized + CAS + node + 红黑树
 
+JDK1.7：ReentrantLock + Segment + HashEntry
 
+JDK7 ConcurrentHashMap：在 JDK1.7 中 ConcurrentHashMap 由 Segment (分段锁)数组结构和 HashEntry 数组组成，且主要通过 Segment (分段锁)段技术实现线程安全。
+
+Segment是一种可重入锁，是一种数组和链表的结构，一个 Segment 中包含一个 HashEntry 数组，每个 HashEntry 又是一个链表结构，因此在ConcurrentHashMap 查询一个元素的过程需要进行两次 Hash 操作，如下所示：
+
+- 第一次 Hash 定位到 Segment
+- 第二次 Hash 定位到元素所在的链表的头部
+
+![img](sourceCodeAnalyse.assets/1460000024432654.png)
+
+正是通过 Segment 分段锁技术，将数据分成一段一段的存储，然后给每一段数据配一把锁，当一个线程占用锁访问其中一个段数据的时候，其他段的数据也能被其他线程访问，能够实现真正的并发访问。
+
+这样结构会使 Hash 的过程要比普通的 HashMap 要长，影响性能，但写操作的时候可以只对元素所在的 Segment 进行加锁即可，不会影响到其他的 Segment，ConcurrentHashMap 提升了并发能力。
+
+JDK8 ConcurrentHashMap：Java 8在链表长度超过一定阈值(8)时将链表转换为红黑树，结构和功能与JDK8的HashMap一样，只不过ConcurrentHashMap保证线程安全性。
+
+![img](sourceCodeAnalyse.assets/1460000024432653.png)
+
+但在 JDK1.8 中摒弃了 Segment 分段锁的数据结构，基于 CAS 操作保证数据的获取以及使用 synchronized 关键字对相应数据段加锁来实现线程安全，这进一步提高了并发性。
+
+```java
+static class Node<K,V> implements Map.Entry<K,V> {
+    final int hash;
+    final K key;
+    volatile V val;  //使用了volatile属性
+    volatile Node<K,V> next;  //使用了volatile属性
+    ...
+}
+```
+
+ConcurrentHashMap 采用 Node 类作为基本的存储单元，每个键值对 (key-value) 都存储在一个 Node中 ，使用了 volatile 关键字修饰 value 和 next，保证并发的可见性。其中 Node 子类有：
+
+- ForwardingNode：扩容节点，只是在扩容阶段使用的节点，主要作为一个标记，在处理并发时起着关键作用，有了ForwardingNodes，也是ConcurrentHashMap有了分段的特性，提高了并发效率
+- TreeBin：TreeNode的代理节点，用于维护TreeNodes，ConcurrentHashMap的红黑树存放的是TreeBin
+- TreeNode：用于树结构中，红黑树的节点（当链表长度大于8时转化为红黑树），此节点不能直接放入桶内，只能是作为红黑树的节点
+- ReservationNode：保留结点
+
+ConcurrentHashMap中查找元素、替换元素和赋值元素都是基于`sun.misc.Unsafe`中**原子操作**实现**多并发的无锁化**操作。
+
+```java
+	static final <K,V> Node<K,V> tabAt(Node<K,V>[] tab, int i) {
+        return (Node<K,V>)U.getObjectAcquire(tab, ((long)i << ASHIFT) + ABASE);
+    }
+
+    static final <K,V> boolean casTabAt(Node<K,V>[] tab, int i,
+                                        Node<K,V> c, Node<K,V> v) {
+        return U.compareAndSetObject(tab, ((long)i << ASHIFT) + ABASE, c, v);
+    }
+
+    static final <K,V> void setTabAt(Node<K,V>[] tab, int i, Node<K,V> v) {
+        U.putObjectRelease(tab, ((long)i << ASHIFT) + ABASE, v);
+    }
+```
+
+## initTable
+
+```java
+    /**  
+    * Hash表的初始化和调整大小的控制标志。为负数，Hash表正在初始化或者扩容;  
+    * (-1表示正在初始化,-N表示有N-1个线程在进行扩容)  
+    * 否则，当表为null时，保存创建时使用的初始化大小或者默认0;  
+    * 初始化以后保存下一个调整大小的尺寸。  
+    */  
+	private final Node<K,V>[] initTable() {
+        Node<K,V>[] tab; int sc;
+        while ((tab = table) == null || tab.length == 0) {
+            if ((sc = sizeCtl) < 0)
+                Thread.yield(); // lost initialization race; just spin
+            else if (U.compareAndSwapInt(this, SIZECTL, sc, -1)) {
+                try {
+                    if ((tab = table) == null || tab.length == 0) {
+                        int n = (sc > 0) ? sc : DEFAULT_CAPACITY;
+                        @SuppressWarnings("unchecked")
+                        Node<K,V>[] nt = (Node<K,V>[])new Node<?,?>[n];
+                        table = tab = nt;
+                        sc = n - (n >>> 2);
+                    }
+                } finally {
+                    sizeCtl = sc;
+                }
+                break;
+            }
+        }
+        return tab;
+    }
+```
+
+同一时刻只能有一个线程执行初始化
+
+## 扩容原理
+
+1、扩容变量
+
+```java
+// 新 tab 的 length  
+int nextn = nextTab.length;  
+// 创建一个 fwd 节点，用于占位。当别的线程发现这个槽位中是 fwd 类型的节点，则跳过这个节点。  
+ForwardingNode<K,V> fwd = new ForwardingNode<K,V>(nextTab);  
+// 首次推进为 true，如果等于 true，说明需要再次推进一个下标（i--）  
+//反之，如果是 false，那么就不能推进下标，需要将当前的下标处理完毕才能继续推进  
+boolean advance = true;  
+// 完成状态，如果是 true，就结束此方法。  
+boolean finishing = false; // to ensure sweep before committing nextTab
+```
+
+2、ConcurrentHashMap支持多线程扩容，多个线程处理不同的节点，首先先计算出每个线程处理的桶数：将length/8/cpuCores，如果得到的结果小于16，就是用16。
+
+```java
+int n = tab.length, stride;  
+if ((stride = (NCPU > 1) ? (n >>> 3) / NCPU : n) < MIN_TRANSFER_STRIDE)  
+	stride = MIN_TRANSFER_STRIDE; 
+```
+
+## ConcurrentHashMap迭代器
+
+在迭代时，ConcurrentHashMap使用了不同于传统集合的快速失败迭代器，弱一致迭代器。
+
+在这种迭代方式中，当iterator被创建后集合再发生改变就不再抛出ConcurrentModificationException，取而代之的是在改变时new新的数据从而不影响原有的数据，iterator完成后再将头指针替换为新的数据。
+
+这样iterator线程可以使用原来老的数据，而写线程也可以并发的完成改变，更重要的，这保证了多个线程并发执行的连续性和扩展性，是性能提升的关键。
 
 # TreeMap
 
