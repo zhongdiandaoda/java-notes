@@ -1,3 +1,51 @@
+# 对象的内存分配
+
+选择哪种分配方式由Java堆是否规整决定，而Java堆是否规整又由所采用的**垃圾收集器是否带有压缩整理功能**决定。
+
+一般的垃圾回收期都带有压缩整理功能使用指针碰撞方式简单又高效，但是**CMS不带压缩整理功能**，所以CMS理论上只能使用空闲列表。
+
+## 指针碰撞
+
+![img](JVM%E5%AF%B9%E8%B1%A1.assets/1609044192754-c837b22c-f5b3-460f-ba39-7d519bdcc2de.png)
+
+如果Java堆中内存是绝对规整的，所有用过的内存都放在一边，空闲的内存放在另一边，中间放着一个**指针**作为分界点的指示器，那所分配内存就仅仅是把那个指针向空闲空间那边挪动一段与对象大小相等的距离，这种分配方式称为“**指针碰撞**”。
+
+## 空闲列表
+
+![img](JVM%E5%AF%B9%E8%B1%A1.assets/1609044273758-7985e841-7935-42b7-9d42-7032aee42447.png)
+
+前提是堆内存空间中已被使用与未被使用的空间是交织在一起的， 这时，虚拟机就需要**通过一个列表来记录**哪些空间是可以使用的，哪些空间是已被使用的，接下来找出可以容纳下新创建对象的且未被使用的空间，在此空间存放该对象，同时还要修改列表上的记录
+
+## 内存分配的并发安全
+
+除如何划分可用空间之外，还有另外一个需要考虑的问题是对象创建在虚拟机中是非常频繁的行为，即使是仅仅修改一个指针所指向的位置，在并发情况下也并不是线程安全的，可能出现正在给对象 A 分配内存，指针还没来得及修改，对象 B 又同时使用了原来的指针来分配内存的情况。
+
+解决这个问题有两种方案
+
+### CAS 机制
+
+一种是对分配内存空间的动作进行同步处理——实际上虚拟机采用 CAS 配上失败重试的方式保证更新操作的原子性；
+
+CAS失败再来一次的时候要再去读取一遍old值。(实际上发现该位置有值了就不会再在该位置分配了，会去下一个空闲空间分配。)
+
+![img](JVM%E5%AF%B9%E8%B1%A1.assets/1609044761186-c747a774-a82c-4a78-98fa-18fea2a0404b.png)
+
+### 线程分配缓冲
+
+<img src="JVM%E5%AF%B9%E8%B1%A1.assets/1609045673390-453185d7-dea9-492b-81b9-6a3a65b3c72a.png" alt="img" style="zoom:50%;" />
+
+另一种是把内存分配的动作按照线程划分在不同的空间之中进行，即每个线程在 Java 堆中预先分配一小块私有内存，也就是**本地线程分配缓冲（Thread Local Allocation Buffer,TLAB）**，JVM 在线程初始化时，同时也会申请一块指定大小的内存，只给当前线程使用，这样每个线程都单独拥有一个 Buffer，如果需要分配内存，就在自己的 Buffer 上分配，这样就不存在竞争的情况，可以大大提升分配效率，**当** **Buffer** **容量不够的时候，再重新从** **Eden 区域申请一块继续使用**。
+
+TLAB 的目的是在为新对象分配内存空间时，让每个 Java 应用线程能在使用自己专属的分配指针来分配空间，减少同步开销。
+
+分配缓冲受制于内存大小，一般情况下一个TLAB为**Eden区的1%**，如果需要分配的内存大于TLAB的大小，就不会采用分配缓冲，而是采用CAS机制。
+
+TLAB 只是让每个线程有私有的分配指针，但底下存对象的内存空间还是给所有线程访问的，只是其它线程无法在这个区域分配而已。当一个 TLAB 用满（分配指针 top 撞上分配极限 end 了），就新申请一个 TLAB。
+
+参数：`-XX:+UseTLAB`，允许在年轻代空间中使用线程本地分配块（TLAB）。
+
+
+
 # 创建对象的方法
 
 - 通过new关键字创建对象
@@ -26,7 +74,7 @@ JVM执行到一条new指令，首先判断指令的参数能否在元空间定�
 
 **三、解决并发安全问题**
 
-1. Compare and swap：失败重试，区域枷锁，保证指针更新操作的原子性。
+1. Compare and swap：失败重试，区域加锁，保证指针更新操作的原子性。
 2. TLAB，划分线程专用堆内存。
 
 **四、初始化实例变量**
@@ -38,6 +86,48 @@ JVM执行到一条new指令，首先判断指令的参数能否在元空间定�
 将对象的所属类（即类的元数据信息）、对象的`HashCode`和对象的GC信息、锁信息等数据存储在对象的对象头中。这个过程的具体设置方式取决于JVM实现。
 
 **六、执行`init`方法**
+
+# 对象的分配策略
+
+**1、对象优先在Eden分配** 
+
+大多数情况下，对象在新生代 Eden 区中分配。当 Eden 区没有足够空间分配时，虚拟机将发起一次 Minor GC。
+
+2、空间分配担保
+
+在发生 Minor GC 之前，虚拟机会先检查**老年代最大可用的连续空间是否大于新生代所有对象总空间**，如果这个条件成立，那么可以确保这一次Minor GC是安全的。如果不成立，则虚拟机会查看 `HandlePromotionFailure` 设置值是否允许担保失败。如果允许，那么会继续检查老年代最大可用的连续空间是否大于**历次晋升到老年代对象的平均大小**，如果大于，将尝试着进行一次 Minor GC，尽管这次 Minor GC 是有风险的，**如果担保失败则会进行一次 Full GC**；如果小于，或者 `HandlePromotionFailure` 设置不允许冒险，那这时也要改为进行一次 Full GC。
+
+survivor 区比较小，当无法容纳所有存活对象时，需要把多余的对象存储到老年代。
+
+3、大对象直接进入老年代 
+
+大对象就是指需要大量连续内存空间的 Java 对象，最典型的大对象便是那种很长的字符串，或者元素数量很庞大的数组。
+
+大对象对虚拟机的内存分配来说就是一个不折不扣的坏消息，比遇到一个大对象更加坏的消息就是遇到一群“朝生夕灭”的“短命大对象”，我们写程序的时候应注意避免。
+
+在 Java 虚拟机中要避免大对象的原因是，在分配空间时，它容易导致内存明明还有不少空间时就提前触发垃圾收集，以获取足够的连续空间才能安置好它们。而当复制对象时，**大对象就意味着高额的内存复制开销**。
+
+`HotSpot` 虚拟机提供了`-XX:PretenureSizeThreshold` 参数，指定大于该设置值的对象直接在老年代分配，这样做的目的就是避免在 Eden 区及两个 Survivor区之间来回复制，产生大量的内存复制操作。
+
+这样做的目的：
+
+1.避免大量内存复制,
+
+2.避免提前进行垃圾回收，明明内存有空间进行分配。
+
+`PretenureSizeThreshold` 参数只对 `Serial` 和 `ParNew` 两款收集器有效。
+
+4、长期存活的对象进入老年代 
+
+`HotSpot` 虚拟机中多数收集器都采用了分代收集来管理堆内存，那内存回收时就必须能决策哪些存活对象应当放在新生代，哪些存活对象放在老年代中。为做到这点，虚拟机给每个对象定义了一个对象年龄(Age)计数器，存储在对象头中。
+
+如果对象在 Eden 出生并经过第一次 Minor GC 后仍然存活，并且能被 Survivor 容纳的话，将被移动到 Survivor 空间中，并将对象年龄设为 1，对象在 Survivor区中每熬过一次 Minor GC，年龄就增加 1，当它的年龄增加到一定程度(并发的垃圾回收器**默认为 15**),**CMS 是 6** 时，就会被晋升到老年代中。
+
+`-XX:MaxTenuringThreshold` 调整
+
+5、动态对象年龄判定 
+
+为了能更好地适应不同程序的内存状况，虚拟机并不是永远地要求对象的年龄必须达到了 `MaxTenuringThreshold` 才能晋升老年代，如果在 Survivor 空间中相同年龄所有对象大小的总和大于 Survivor空间(From或者To)的一半，年龄大于或等于该年龄的对象就可以直接进入老年代，无须等到 `MaxTenuringThreshold` 中要求的年龄
 
 # 对象的内存布局
 
@@ -52,195 +142,129 @@ JVM执行到一条new指令，首先判断指令的参数能否在元空间定�
   - 线程持有的锁
   - 偏向线程ID
   - 偏向时间戳
-- 类型指针：确定该对象所属的类型
+- 类型指针：指向该对象所属的类的元数据
 - 说明：如果是数组，还需记录数组的长度
 
-`InstanceData`部分对象中从父类继承来的数据和对象中的数据。
+`InstanceData`：部分对象中从父类继承来的数据和对象中的数据。
+
+> Java的对象头在无锁、偏向锁和重量锁时有不同的格式，所以Java中的加锁其实是改变对象的对象头的状态
 
 # 对象的访问定位
 
 对象访问方式是由虚拟机决定的，主流的访问方式有句柄和直接指针两种：
 
-1 句柄
+## 句柄
 
 使用句柄的方式访问对象时，Java堆中将划分出一块内存来作为句柄池，栈中的引用存储的是对象的句柄地址，而句柄中包含了对象实例数据和类型数据各自具体的地址信息。
 
 ![image-20210323203812434](JVM对象.assets/image-20210323203812434.png)
 
-2 直接指针访问
+## 直接指针访问
 
 使用直接指针访问时，引用中存储的是对象在堆中的地址，但是需要在对象中存储其类型数据的地址。
 
 ![image-20210323203935789](JVM对象.assets/image-20210323203935789.png)
 
-这两种方式各有优点，使用句柄的好处是：对象移动后不需要改变reference，只需改变句柄中的实例数据指针。使用直接指针的好处是访问速度更快，因为节省了一次指针定位的开销，HotSpot是使用的第二种方式。
+这两种方式各有优点，使用句柄的好处是：对象移动后不需要改变reference，只需改变句柄中的实例数据指针。使用直接指针的好处是访问速度更快，因为节省了一次指针定位的开销，`HotSpot`是使用的第二种方式。
 
-# Java堆溢出
+# 对象的引用类型
 
-模拟堆溢出，将JVM的堆内存初始值和最大值均设置为20MB。
+JDK1.2后，Java对引用的概念进行了扩充，将引用分为强引用(Strong Reference)、软引用(Soft Reference)、弱引用(Weak Reference)和虚引用(Phantom Reference)。
+
+![image.png](JVM%E5%AF%B9%E8%B1%A1.assets/1616820447865-7dcad8b6-0a2f-4d62-9a96-afc4596320c1.png)
+
+## 强引用
+
+传统的引用，例如`Object obj = new Object()`，任何情况下，只要强引用关系存在，GC就不会回收被引用的对象。
+
+## 软引用
+
+一些有用但非必须的对象。系统在将要发生内存溢出异常时会将这些对象列进回收范围进行第二次回收。
 
 ```java
-package heapMemory;
-
-import java.util.ArrayList;
-import java.util.List;
-
 /**
- * VM参数：-Xms20m -Xmx20m -XX:+HeapDumpOnOutOfMemoryError
+ * 软引用
+ * -Xms20m -Xmx20m
  */
+public class TestSoftRef {
+	//对象
+	public static class User{
+		public int id = 0;
+		public String name = "";
+		public User(int id, String name) {
+			super();
+			this.id = id;
+			this.name = name;
+		}
+		@Override
+		public String toString() {
+			return "User [id=" + id + ", name=" + name + "]";
+		}
+	}
+	//
+	public static void main(String[] args) {
+		User u = new User(1,"King"); //new是强引用
+		SoftReference<User> userSoft = new SoftReference<User>(u);//软引用
+		u = null;//干掉强引用，确保这个实例只有userSoft的软引用
+		System.out.println(userSoft.get()); //看一下这个对象是否还在
+		System.gc();//进行一次GC垃圾回收  千万不要写在业务代码中。
+		System.out.println("After gc");
+		System.out.println(userSoft.get());
+		//往堆中填充数据，导致OOM
+		List<byte[]> list = new LinkedList<>();
+		try {
+			for(int i=0;i<100;i++) {
+				//System.out.println("*************"+userSoft.get());
+				list.add(new byte[1024*1024*1]); //1M的对象 100m
+			}
+		} catch (Throwable e) {
+			//抛出了OOM异常时打印软引用对象
+			System.out.println("Exception*************"+userSoft.get());
+		}
 
-public class HeapMem {
-    static class OOMObject {
-
-    }
-    public static void main(String[] args) {
-        List<OOMObject> list = new ArrayList<>();
-        while(true) {
-            list.add(new OOMObject());
-        }
-    }
+	}
 }
 ```
 
-控制台：
 
-```sh
-java.lang.OutOfMemoryError: Java heap space
-Dumping heap to java_pid12932.hprof ...
-Heap dump file created [28299620 bytes in 0.070 secs]
-Exception in thread "main" java.lang.OutOfMemoryError: Java heap space
-	at java.util.Arrays.copyOf(Arrays.java:3210)
-	at java.util.Arrays.copyOf(Arrays.java:3181)
-	at java.util.ArrayList.grow(ArrayList.java:267)
-	at java.util.ArrayList.ensureExplicitCapacity(ArrayList.java:241)
-	at java.util.ArrayList.ensureCapacityInternal(ArrayList.java:233)
-	at java.util.ArrayList.add(ArrayList.java:464)
-	at heapMemory.HeapMem.main(HeapMem.java:13)
 
-Process finished with exit code 1
-```
+## 弱引用
 
-利用Java自带的JVisualVM可以查看fprof文件。
-
-![image-20210324104603105](JVM对象.assets/image-20210324104603105.png)
-
-![image-20210324104611378](JVM对象.assets/image-20210324104611378.png)
-
-# 虚拟机栈和本地方法栈溢出
-
-`HotSpot`虚拟机中不区分本地方法栈和虚拟机栈，因此`-Xoss`参数（设置本地方法栈大小）没有作用。栈容量只由`-Xss`参数指定。
-
-虚拟机栈和本地方法栈中存在两种异常：
-
-- 线程请求的栈深度大于虚拟机所允许的深度，将抛出`StackOverflowError`
-- 虚拟机栈动态扩展时无法申请到足够的内存，将抛出`OutOfMemoryError`
-
-《Java虚拟机规范》允许Java虚拟机自行选择是否支持栈的动态扩展，而`HotSpot`虚拟机不支持扩展。因此线程运行前无法申请到足够内存时会出现`OutOfMemoryError`，线程运行时只会因为栈容量无法容纳新的栈帧而出现`StackOverflowError`。
-
-1 测试`StackOverflowError`
-
-使用`-Xss`参数限制栈内存容量
+一些非必须的对象。当GC开始工作时，无论当前内存是否足够，都会回收掉只被弱引用关联的对象。
 
 ```java
-package vmstack;
-
-public class OverflowError {
-    /**
-     * -Xss128k
-     */
-    public int stacklength = 1;
-    private void go() {
-        stacklength++;
-        go();
-    }
-    public static void main(String[] args) {
-        OverflowError overflowError = new OverflowError();
-        try {
-            overflowError.go();
-        }catch (Throwable e) {
-            System.out.println("stack length" + overflowError.stacklength);
-            throw e;
-        }
-    }
+/**
+ * 弱引用
+ */
+public class TestWeakRef {
+	public static class User{
+		public int id = 0;
+		public String name = "";
+		public User(int id, String name) {
+			super();
+			this.id = id;
+			this.name = name;
+		}
+		@Override
+		public String toString() {
+			return "User [id=" + id + ", name=" + name + "]";
+		}
+	}
+	public static void main(String[] args) {
+		User u = new User(1,"King");
+		WeakReference<User> userWeak = new WeakReference<User>(u);
+		u = null;//干掉强引用，确保这个实例只有userWeak的弱引用
+		System.out.println(userWeak.get());
+		System.gc();//进行一次GC垃圾回收,千万不要写在业务代码中。
+		System.out.println("After gc");
+		System.out.println(userWeak.get());
+	}
 }
 ```
 
 
 
-```shell
-stack length992
-Exception in thread "main" java.lang.StackOverflowError
-	at vmstack.OverflowError.go(OverflowError.java:9)
-	at vmstack.OverflowError.go(OverflowError.java:10)
-	at vmstack.OverflowError.go(OverflowError.java:10)
-	at vmstack.OverflowError.go(OverflowError.java:10)
-	at vmstack.OverflowError.go(OverflowError.java:10)
-	at vmstack.OverflowError.go(OverflowError.java:10)
-```
+## 虚引用
 
-当栈帧过大时，在不允许动态扩展栈容量的虚拟机上同样会引发`StackOverflowError`。但是，在允许动态扩展栈容量的虚拟机上，栈帧过大引起的是`OutOfMemoryError`。
-
-在`HotSpot`虚拟机不断创建新的线程时，同样会引发`OutOfMemoryError`。出现这种情况时，可以通过较少最大堆和减少栈容量来限制单个线程占用的空间大小，从而提高可创建的线程数。
-
-# 方法区和运行时常量池溢出
-
-`String::intern()`是一个本地方法，作用是：
-
-判断字符串常量是否存在于常量池
-        如果存在
-       判断存在内容是引用还是常量
-            如果是引用
-                 返回引用地址指向堆空间对象
-            如果是常量，
-                 直接返回常量池常量
-  如果不存在
-       将当前对象引用复制到常量池，并且返回当前对象的引用
-
-在JDK6之前，常量池都在永生代中，可以通过-XX:PermSize和-XX:MaxPermSize来限制永生代的大小，然后间接限制常量池的容量。
-
-但是JDK7之后，运行时常量池被移动到了堆之中。
-
-```java
-public class intern {
-    public static void main(String[] args) {
-        String str1 = new StringBuilder("计算机").append("软件").toString();
-        //true
-        System.out.println(str1.intern() == str1);
-        String str2 = new StringBuilder("ja").append("r").toString();
-        //false
-        System.out.println(str2.intern() == str2);
-    }
-}
-```
-
-由于字符串在堆中存储，`str1.intern()`返回str1的地址。
-
-常量池中，有默认字符串常量这样的机制。JVM从启动，到执行main里面的第一条代码，在加载类的过程中，常量池会存入一系列常量，这些常量中包含了"jar"这样的字符串。
-
-**创建字符串分析：**
-
-1 直接使用双引号创建字符串
-
-判断这个常量是否存在于常量池
-  如果存在
-       判断这个常量是堆中对象的引用还是常量
-            如果是引用，返回引用地址指向的堆空间对象，
-            如果是常量，则直接返回常量池常量，
-  如果不存在
-            在常量池中创建该常量，并返回此常量
-
-2 使用new String创建字符串
-
-在堆上创建对象(无论堆上是否存在相同字面量的对象)
-判断常量池中是否存在该字符串
-  如果不存在
-       在常量池上创建常量
-  如果存在
-       不做任何操作
-
-JDK8以后，元空间替换了永生代。
-
-- `-XX:MaxMetaspaceSize`：设置元空间最大值，默认为不限制
-- `-XX:MetaspaceSize`：设置元空间初始大小
-- `-XX:MinMetaspaceFreeRatio`：在垃圾收集之后控制最小的元空间剩余容量的百分比
+一个对象是否有虚引用的存在，完全不会对其生存时间产生影响，也无法通过虚引用取得一个对象实例，虚引用的作用是在对象被回收后收到一个系统通知。
 

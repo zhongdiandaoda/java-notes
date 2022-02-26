@@ -95,7 +95,7 @@ String s = String.join(", ", names);
 
 - String的创建方式：
   - `String s1 = "abc";	//字面量的定义方式，“abc”将被存储在常量池`
-  - `String s2 = new String("efg"); //字符串将作为对象保存在堆中`
+  - `String s2 = new String("efg"); //如果常量池没有"efg",现在常量池创建"eft"，然后在堆中创建String对象，其中value数组引用常量池中的value数组；否则，堆中直接创建String对象，value指向常量池中的value数组`
 
 - String的权限是final，不可以被继承。
 - String实现了Serializable接口，支持序列化。
@@ -202,8 +202,6 @@ Intern 是一种**显式的排重机制**，但是它也有一定的副作用，
 -XX:+UseStringDeduplication
 ```
 
-
-
 demo1：
 
 ```java
@@ -235,6 +233,8 @@ public static void main(String[] args) {
 //new String("state")编译后，会将“state”字符串往常量池也添加一份，因此x.intern()什么都没做
 //因此y指向常量池的对象，x指向堆中的对象
 ```
+
+
 
 # new String创建几个对象
 
