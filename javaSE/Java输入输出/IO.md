@@ -170,7 +170,7 @@ Java将不同的输入输出源抽象表述成”流“，通过流的方式可�
 
 2. 字节流和字符流
 
-   字节流的数据单元是一个8位的字节，字符流的数据单元是16位的字符。
+   **字节流的数据单元是一个8位的字节，字符流的数据单元是16位的字符。**
 
 3. 节点流和处理流
 
@@ -192,6 +192,48 @@ Java的IO流里的四十多个类都是从以下4个基类派生出来的：
 ![](IO.assets/88e8dc8113e64cf7850d1d4950518383)
 
 # 字节流和字符流
+
+字节流和字符流之间的相互转换：
+
+字符流转换成字节流
+
+```java
+public static void main(String[] args) throws IOException {
+    File f = new File("test.txt");
+    // OutputStreamWriter 是字符流通向字节流的桥梁,创建了一个字符流通向字节流的对象
+    OutputStreamWriter osw = new OutputStreamWriter(new FileOutputStream(f),
+    "UTF-8");
+    osw.write("我是字符流转换成字节流输出的");
+    osw.close();
+}
+```
+
+字节流转成字符流
+
+```java
+public static void main(String[] args) throws IOException {
+    File f = new File("test.txt");
+    InputStreamReader inr = new InputStreamReader(new FileInputStream(f),
+    "UTF-8");
+    char[] buf = new char[1024];
+    int len = inr.read(buf);
+    System.out.println(new String(buf,0,len));
+    inr.close();
+}
+```
+
+**同步与异步：**同步与异步描述的是被调用者的，如果是同步，B 在接到 A 的调用后会立即执行任务，如果是异步，B 在收到调用后不保证会立即执行要做的事。
+
+**阻塞与非阻塞**：阻塞与非阻塞描述的是调用者，如果是阻塞，A 发出调用后要一直等待返回值，如果是非阻塞，A发出调用后不需要等待。
+
+例子：
+
+1. 老张把水壶放到火上，一直在水壶旁等着水开。（同步阻塞）； 
+2. 老张把水壶放到火上，去客厅看电视，时不时去厨房看看水开没有。（同步非阻塞）
+3. 老张把响水壶放到火上，一直在水壶旁等着水开。（异步阻塞） ； 
+4. 老张把响水壶放到火上，去客厅看电视，水壶响之前不再去看它了，响了再去拿壶。 （异步非阻塞）。
+
+
 
 ## `InputStream`和`Reader`
 

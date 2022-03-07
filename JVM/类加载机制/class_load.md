@@ -93,6 +93,41 @@ public class Test {
 
 final型的变量在编译class文件时已经被优化，存储在了常量池里，因此对它的访问未触发类的初始化。
 
+# OOP-Klass模型
+
+在JVM中，使用了OOP-KLASS模型来表示java对象，即：
+
+- jvm在加载class时，会创建instanceKlass，表示其元数据，包括常量池、字段、方法等，存放在方法区；instanceKlass是jvm中的数据结构；
+- 在new一个对象时，jvm创建instanceOopDesc，来表示这个对象，存放在堆区，其引用，存放在栈区；它用来表示对象的实例信息，看起来像个指针实际上是藏在指针里的对象；instanceOopDesc对应java中的对象实例；
+- HotSpot并不把instanceKlass暴露给Java，而会另外创建对应的instanceOopDesc来表示java.lang.Class对象，并将后者称为前者的“Java镜像”，klass持有指向oop引用(_java_mirror便是该instanceKlass对Class对象的引用)；
+- 要注意，new操作返回的instanceOopDesc类型指针指向instanceKlass，而instanceKlass指向了对应的类型的Class实例的instanceOopDesc；有点绕，简单说，就是Person实例——>Person的instanceKlass——>Person的Class。
+
+```
+• Klass表示Java类在JVM中的存在形式
+    • InstanceKlass表示类的元信息
+		• InstanceMirrorKlass表示类的Class对象
+		• InstanceRefKlass表示?
+	• ArrayKlass表示数组类的元信息
+		• TypeArrayKlass表示基本数组类的元信息
+		• ObjArrayKlass表示引用数组类的元信息
+• oopDesc表示JAVA对象在JVM中的存在形式
+	• instanceOopDesc表示普通类对象（非数组类对象）
+	• arrayOopDesc表示数组类对象
+		• typeArrayOopDesc表示基本数组类对象
+		• objArrayOopDesc表示引用数组类对象
+```
+
+1. 对象头，也叫Mark Word，主要存储对象运行时记录信息，如hashcode, GC分代年龄，锁状态标志，线程ID，时间戳等;
+
+2. 元数据指针，即指向方法区的instanceKlass实例 （虚拟机通过这个指针来群定这个对象是哪个类的实例。
+3. 实例数据;
+
+4. 另外，如果是数组对象，还多了一个数组长度
+
+![img](class_load.assets/1115933-20180715174255241-1246448207.png)
+
+
+
 # 类加载过程
 
 ## Loading
@@ -100,15 +135,23 @@ final型的变量在编译class文件时已经被优化，存储在了常量池�
 在加载阶段，Java虚拟机需要完成以下三件事情：
 
 1. 通过一个类的全限定名来获取定义此类的二进制字节流；
-2. 将这个字节流所代表的静态存储结构转化为方法区的运行时数据结构。
-3. 在内存中生成代表这个类的Class对象（封装类位于方法区内的数据结构），作为方法区这个类的各种数据的访问入口。
+2. 将这个字节流所代表的静态存储结构转化为方法区的`instanceKlass`。
+3. 在堆中生成代表这个类的 **InstanceMirrorKlass **对象，作为方法区这个类的各种数据的访问入口。
+
+> **为什么有了 instanceKlass 还需要有 InstanceMirrorKlass ？**
+>
+> 主要是为了安全性考虑，jvm的开发者不希望直接暴露 instanceKlass 里面类的全部元信息，而且作为Java程序员也没有必要去知道这些信息，使用权限标识符去控制就已经足够了。
+>
+> 如果暴露了，那么黑客可以使用 C++ 或者 JNI 来写一些漏洞或者外挂，来绕过 Java 本身的权限判断，就会有很大的安全问题了。
+
+**静态属性是存储在堆里面，也就是挂载到 InstanceMirrorKlass上面的。**
+
+**loadClass 与class.forName的区别：**
+
+- Class.forName 得到的 class 是已经初始化完成的
+- Classloder.loadClass 得到的 class 是还没有链接的
 
 Java虚拟机规范没有指明二进制字节流要从哪里获取，从这一点上，就衍生出了很多Java技术，例如：从压缩包获取（JAR、WAR），从网络获取（Applet），运行时动态生成（动态代理）、由其他文件生成（jsp）、从数据库读取等。
-
-对于数组类而言，其本身并不通过类加载器创建，而是由JVM直接创建的。但数组类的元素类型最终仍要靠类加载器去创建，一个数组类创建过程遵循以下规则：
-
-- 如果数组的Content Type是引用类型，则会递归调用上面的三个步骤加载其类型，并将数组类标记在该组件类型的类加载器的类名称空间上。
-- 如果不是引用类型，如int[]，JVM会将数组类标记为与引导类加载器关联，且访问权限默认为public。
 
 加载阶段结束后，二进制字节流就按照JVM设定的格式存储在**方法区**了（JVM内存中方法区是唯一的，所有class文件的二进制数据都被加载到方法区中）。
 
@@ -116,7 +159,9 @@ Java虚拟机规范没有指明二进制字节流要从哪里获取，从这一�
 
 对每个被加载的.class文件，JVM会在堆内存中立即创建一个java.lang.class\<T>类型的对象，用来作为访问类的元数据的入口（这是一个单例），其中也保存了指向方法区的类静态成员的引用。
 
-Class类的构造方法是私有的，只有JVM可以调用，它提供了访问Class实例信息的接口，demo：
+Class类的构造方法是私有的，只有JVM可以调用，它提供了访问Class实例信息的接口。
+
+demo：
 
 ```java
  /* 过程一：加载阶段
@@ -154,8 +199,6 @@ public class LoadingTest {
     }
 }
 ```
-
-
 
 ## Linking
 
@@ -213,13 +256,15 @@ Java语言本身是相对安全的编程语言，一些不合理的操作会直�
 
 此时准备阶段结束val会被初始化为1200。
 
+准备阶段的意义：在一个变量还没有被初始化时，其他的变量初始化时如果要用到该变量，可以使用该变量的零值。
+
 ### 解析
 
 解析阶段是JVM将常量池内的符号引用替换成直接引用的过程，即替换为其在内存中某个表的偏移量。
 
 **解析阶段的过程是方法重写的本质。**
 
-- 符号引用（Symbolic References）：符号引用以一组符号来描述被引用的目标，符号可以是任何形式的字面量。符号引用与虚拟机实现的内存布局无关，引用的目标并不一定是已经加载到虚拟机内存中的内容。各种虚拟机实现的内存布局可以不同，但能接受的符号引用是一致的，因为符号引用的字面量形式明确定义在Java虚拟机规范中。
+- 符号引用（Symbolic References）
 - 直接引用（Direct References）：直接引用是可以直接指向目标的指针、相对偏移量或一个能直接定位到目标的句柄。如果有了直接引用，引用的目标必定已在虚拟机内存中存在。
 
 Java虚拟机规范只要求在执行用于操作符号引用的字节码指令前，先对对应的符号引用进行解析。
@@ -269,44 +314,24 @@ public class StaticTest{
 
 访问m时，执行了getstatic指令，触发了Father的初始化阶段，需要递归调用Super的初始化，因此输出上述结果。
 
-#### 类或接口的解析
+解析类型：
 
-设当前代码所处的类为D，如果要把一个从未解析过的符号引用N解析为一个类或接口C的直接引用，其步骤为：
+- 类或接口的解析
 
-- 如果C不是一个数组类型，虚拟机会把N的全限定名传递给D的类加载器去加载这个类C。
-- 如果C是一个数组类型，且数组的元素类型为对象，则虚拟机会按照对象的类型加载数组中的元素。
-- 如果前两步成功，则C在虚拟机中已经是一个有效的类或接口了，随后进行符号引用验证，确认D是否具备对C的访问权限。
+- 字段解析
 
-#### 字段解析
+- 类方法解析
 
-解析一个未被解析过的字段符号引用，首先会对字段表内class_index项索引的CONSTANT_class_info符号引用进行解析，即字段所属的类或接口的符号引用。解析成功后，将字段所属的类或接口用C表示，再执行以下步骤：
+- 接口方法解析
 
-1. 如果C本身就包含了名称和描述符都与目标相匹配的字段，则返回这个字段的直接引用。
-2. 否则，如果C中实现了接口，则按照继承关系递归搜索各个接口和父接口。
-3. 否则，如果C不是Object类，递归搜索其父类。
-4. 否则，查找失败，抛出`java.lang.NoSuchFieldError`
+几个经常发生的异常：
 
-如果查找成功返回了引用，将会对这个字段进行权限验证。
+- java.lang.NoSuchFieldError 根据继承关系从下往上，找不到相关字段时的报错。（字段解析异常） 
+- java.lang.IllegalAccessError 字段或者方法，访问权限不具备时的错误。（类或接口的解析异常） 
 
-#### 类方法解析
+- java.lang.NoSuchMethodError 找不到相关方法时的错误。（类方法解析、接口方法解析时发生的异常）
 
-方法解析也会首先解析方法表中的class_index索引的类或接口，使用C代表解析出的类或接口，再执行以下步骤：
 
-1. 如果class_index指向一个接口，抛出`java.lang.IncompatibleClassChangeError`异常。
-2. 在C中查找。
-3. 否则，在C的父类中递归查找。
-4. 否则，在C实现的接口列表以及父接口中递归查找。如果找到了，说明C是一个抽象类，抛出`java.lang.AbstactMethodError`异常。
-5. 查找失败。
-
-#### 接口方法解析
-
-步骤：
-
-1. 如果class_index指向一个类，抛出`java.lang.IncompatibleClassChangeError`异常。
-2. 否则，在接口C中查找是否有简单名称和描述符都与目标匹配的方法。
-3. 否则，在接口C的父接口中递归查找，直到Object类。
-4. 由于Java中接口允许多继承，如果C的不同父类中有多个与目标相匹配的方法，将会在这些方法中任意返回一个（根据具体JVM实现而定）。
-5. 否则，查找失败，抛出`java.lang.NoSuchMethodError`异常。
 
 ## Initialization
 
