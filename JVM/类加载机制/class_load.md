@@ -12,19 +12,6 @@ Java虚拟机将class文件加载到内存，并对数据进行校验、转换�
 
 **注意**：这些阶段往往是按顺序开始的（开始之后可能会交叉混合进行），但是解析阶段在某些情况下可以位于初始化之后（这是为了支持Java语言的运行时绑定特性）。
 
-Java虚拟机规范规定了有且只有以下六种情况，必须立即对类进行初始化：
-
-1. 遇到new、getstatic、putstatic或invokestatic(调用类方法)这四条指令时，需要立即进行初始化。典型的场景包括：
-   - 使用new实例化一个对象；
-   - 读取或设置一个类型的静态字段；
-   - 调用一个类型的静态方法；
-2. 使用Java.lang.reflect包进行反射调用的时候。
-3. 初始化一个类时，如果其父类未进行过初始化，需要先初始化其父类。
-4. Jvm启动时，用户指定一个需要执行的主类，然后虚拟机对其初始化。
-5. 使用JDK7新加入的动态语言支持时，如果一个`java.lang.invoke.MethodHandle`实例最后的解析结果为REF_getStatic、REF_putStatic、REF_invokeStatic、REF_newInvokeSpecial四种类型的方法句柄，并且这个方法句柄对应的类没有进行过初始化，则需要先进行初始化。
-
-6. 当一个接口中定义了JDK8新加入的default方法时，如果有这个接口的实现类发生了初始化，那该接口要在其之前被初始化。
-
 Demo1：
 
 ```java
@@ -387,11 +374,78 @@ public class Test {
 
 接口中不能使用静态语句块，但仍然有变量初始化的赋值操作，因此接口与类一样都会生成\<clinit>方法。但接口与类不同的是，执行接口的\<clinit>()方法不需要先执行父接口的\<clinit>方法，因为只有当父接口中定义的变量被使用时，父接口才会被初始化。此外，接口的实现类在初始化时也一样不会执行接口的\<clinit>方法。
 
+Java虚拟机规范规定了有且只有以下六种情况，必须立即对类进行初始化：
+
+1. 遇到new、getstatic、putstatic或invokestatic(调用类方法)这四条指令时，需要立即进行初始化。典型的场景包括：
+   - 使用new实例化一个对象；
+   - 读取或设置一个类型的静态字段；
+   - 调用一个类型的静态方法；
+2. 使用Java.lang.reflect包进行反射调用的时候。
+3. 初始化一个类时，如果其父类未进行过初始化，需要先初始化其父类（接口没有该要求）。
+4. Jvm启动时，用户指定一个需要执行的主类，然后虚拟机对其初始化。
+5. 使用JDK7新加入的动态语言支持时，如果一个`java.lang.invoke.MethodHandle`实例最后的解析结果为REF_getStatic、REF_putStatic、REF_invokeStatic、REF_newInvokeSpecial四种类型的方法句柄，并且这个方法句柄对应的类没有进行过初始化，则需要先进行初始化。
+6. 当一个接口中定义了JDK8新加入的default方法时，如果有这个接口的实现类发生了初始化，那该接口要在其之前被初始化。
+
+### 主动使用和被动使用
+
+1. 通过子类访问父类的静态变量或静态方法，为子类的被动使用，**不会导致子类初始化**
+
+```java
+//对于静态字段来说，只有直接定义了该字段的类初始化，该静态字段才会被初始化。
+public class ClassLoadTest {
+    public static void main(String[] args) {
+        System.out.println(Child.str1);
+		//  System.out.println(Child.str2);
+    }
+}
+
+class Parent {
+    //    static String str1 = "-------------------welcome Parent-------------------";
+    static {
+        str1 = "Parent11111111111";
+		// System.out.println("Parent.str1=" + str1);//str1在下面的时候编译错误
+        System.out.println("-------------------from Parent class-------------------");
+    }
+    static String str1 = "-------------------welcome Parent-------------------";
+}
+
+class Child extends Parent {
+    static String str2 = "-------------------welcome Child-------------------";
+    static {
+        System.out.println("-------------------from Child class-------------------");
+    }
+}
+
+//输出结果为：
+//-------------------from Parent class-------------------
+//-------------------welcome Parent-------------------
+```
+
+2. 通过数组定义类引用类，为类的被动使用，不会触发此类的初始化。如：`ArrayList[] = new ArrayList[10];`，不会调用 ArrayList 的 clinit 方法。
+3. **常量**在编译阶段会存入调用方法所在的类的常量池中，本质上没有直接引用到定义常量的类，因此不会触发定义常量的类的初始化。例如：`public static final int i = 10; `
+4. 当一个**接口**在初始化时，并**不要求**其父接口都完成了初始化**，只有在**真正使用到父接口的时候（如引用接口中定义的常量），才会初始化。
+
+
+
+# 卸载
+
+当MySample类被加载、连接和初始化后，它的生命周期就开始了。当代表MySample类的Class对象不再被引用，即不可触及时，Class对象就会结束生命周期，MySample类在方法区内的数据也会被卸载，从而结束MySample类的生命周期。
+
+一个类何时结束生命周期，取决于代表它的Class对象何时结束生命周期。
+
+不会被卸载的类：由**Java虚拟机自带的类加载器所加载的类**，在虚拟机的生命周期中，始终不会被卸载。Java 虚拟机本身会始终引用这些类加载器，而这些类加载器则会始终引用它们所加载的类的Class对象，因此这些Class对象**始终是可触及的**。
+
+可以被卸载的类：由**用户自定义的类加载器所加载的类**是可以被卸载的。
+
+## 可以被卸载的类
+
+由**用户自定义的类加载器所加载的类**是可以被卸载的。
+
 # 类加载器
 
-jvm允许开发人员自定义类加载器，以便让应用程序自己决定如何去获取所需的二进制流！
+jvm允许开发人员自定义类加载器，以便让应用程序自己决定如何去获取所需的二进制流，这是一项创新，是为了Java Applet创造的，不过Java Applet已经死掉，但自定义类加载器却在类层次划分，代码加密，远程调用等方面大放异彩。
 
-这是一项创新，是为了Java Applet创造的，不过Java Applet已经死掉，但自定义类加载器却在类层次划分，代码加密，远程调用等方面大放异彩。
+**只有数组不是由类加载器加载的，而是由JVM动态生成的！数组是JVM内置类型，继承Object。**
 
 ## 类与类加载器
 
@@ -445,8 +499,8 @@ true
 站在开发人员的角度，类加载器可以分为三种：
 
 - 启动类加载器（Bootstrap Class Loader）：使用C++代码实现的加载器，用以加载存放在{JAVA_HOME}/lib目录下，JVM能够识别（按照文件名识别，如rt.jar、tool.jar）的系统类库。启动类加载器不能被Java代码访问到，但是，可以查询某个类是否被引导类加载器加载过。用户在编写自定义类加载器时，如果需要把加载请求委派给引导类加载器去处理，那直接使用null代替即可。当JVM系统启动的时候，引导类加载器会将系统类库中的相关数据加载到 JVM内存的方法区中。
-- 扩展类加载器（Extension Class Loader）：该加载器用于加载java的拓展类 ，拓展类一般放在{JRE_HOME}/lib/ext/ 目录下，用来提供除了系统类之外的额外功能，使用 Java 实现。
-- 应用程序类加载器（Application Class Loader）：该类加载器用于加载用户代码，是用户代码的入口。由于应用程序类加载器是getSystemClassLoader()方法的返回值，因此也叫系统类加载器，使用 Java 实现。
+- 扩展类加载器（Extension Class Loader）：该加载器用于加载java的拓展类 ，拓展类的 jar 文件一般放在{JRE_HOME}/lib/ext/ 目录下，用来提供除了系统类之外的额外功能，使用 Java 实现。
+- 系统类加载器（Application Class Loader）：该类加载器用于加载用户代码，从环境变量 classpath 所指定的目录中加载类，是用户**自定义的类的默认父加载器**。使用 Java 实现。
 
 双亲委派模型：
 
@@ -454,7 +508,10 @@ true
 
 图中的层次关系，称为类加载器的双亲委派模型。双亲委派模型要求除了顶层的根类加载器以外，其余的类加载器都应该有自己的父类加载器(一般不是以继承实现，而是使用**组合关系**来复用父加载器的代码)。如果一个类收到类加载请求，它首先请求父类加载器去加载这个类，只有当父类加载器无法完成加载时(其目录搜索范围内没找到需要的类)，子类加载器才会自己去加载。
 
-ps：父加载器不是父类，只是逻辑上的父子关系。
+ps：父加载器不是父类，只是逻辑上的父子关系，**子加载器包含父加载器的引用**。
+
+1. **自底向上检查类是否已经加载**
+2. **自顶向下尝试加载类**
 
 类加载过程源代码：
 
@@ -467,11 +524,11 @@ protected Class<?> loadClass(String name, boolean resolve)
             Class<?> c = findLoadedClass(name);
             if (c == null) {
                 long t0 = System.nanoTime();
+                // 调用父加载器，如果父加载器为空，就调用启动类加载器
                 try {
                     if (parent != null) {
                         c = parent.loadClass(name, false);
                     } else {
-                        //extension 
                         c = findBootstrapClassOrNull(name);
                     }
                 } catch (ClassNotFoundException e) {
@@ -483,6 +540,7 @@ protected Class<?> loadClass(String name, boolean resolve)
                     // If still not found, then invoke findClass in order
                     // to find the class.
                     long t1 = System.nanoTime();
+                    // 父类加载失败，调用自身的findClass完成加载
                     c = findClass(name);
 
                     // this is the defining class loader; record the stats
@@ -499,11 +557,96 @@ protected Class<?> loadClass(String name, boolean resolve)
     }
 ```
 
+双亲委派模型的好处：
+
+- 避免类的重复加载
+- 保证了安全性
+
 ## 破坏双亲委派模型
 
+双亲委派过程都是在loadClass方法中实现的，那么**想要破坏这种机制，那么就自定义一个类加载器，重写其中的loadClass方法，使其不进行双亲委派即可。**
+
+ClassLoader中和类加载有关的方法有很多：
+
+- *loadClass()* 就是主要进行类加载的方法，默认的双亲委派机制就实现在这个方法中。
+- *findClass()* 根据名称或位置加载.class字节码
+- *definclass()* 把字节码转化为Class
+
+JDK1.2之后已不再提倡用户直接覆盖loadClass()方法，而是建议把自己的类加载逻辑实现到findClass()方法中。
+
+双亲委派模型被破坏的情况：
+
+**第一种被破坏的情况是在双亲委派出现之前。**
+
+由于双亲委派模型是在JDK1.2之后才被引入的，而在这之前已经有用户自定义类加载器在用了。这些自定义的类加载器可能并没有遵守双亲委派的原则。
+
+**第二种，是JNDI、JDBC等需要加载SPI接口实现类的情况。**
+
+**第三种是为了实现热插拔热部署工具。**为了让代码动态生效而无需重启，实现方式时把模块连同类加载器一起换掉就实现了代码的热替换。
+
+**第四种是tomcat等web容器的出现。**
+
+**第五种是OSGI、Jigsaw等模块化技术的应用。**
 
 
 
+### **为什么JNDI，JDBC等需要破坏双亲委派？**
+
+我们日常开发中，大多数时候会通过API的方式调用Java提供的那些基础类，这些基础类时被Bootstrap加载的。
+
+但是，调用方式除了API之外，还有一种SPI的方式。
+
+如典型的JDBC服务，我们通常通过以下方式创建数据库连接：
+
+```text
+Connection conn = DriverManager.getConnection("jdbc:mysql://localhost:3306/mysql", "root", "1234");
+```
+
+在以上代码执行之前，DriverManager会先被类加载器加载，因为java.sql.DriverManager类是位于rt.jar下面的 ，所以他会被根加载器加载。
+
+类加载时，会执行该类的静态方法。其中有一段关键的代码是：
+
+```text
+ServiceLoader<Driver> loadedDrivers = ServiceLoader.load(Driver.class);
+```
+
+这段代码，会尝试加载classpath下面的所有实现了Driver接口的实现类。
+
+那么，问题就来了。
+
+**DriverManager是被根加载器加载的，那么在加载时遇到以上代码，会尝试加载所有Driver的实现类，但是这些实现类基本都是第三方提供的，根据双亲委派原则，第三方的类不能被根加载器加载。**
+
+那么，怎么解决这个问题呢？
+
+于是，就**在JDBC中通过引入ThreadContextClassLoader（线程上下文加载器，默认情况下是AppClassLoader）的方式破坏了双亲委派原则。**
+
+我们深入到ServiceLoader.load方法就可以看到：
+
+```java
+	public static <S> ServiceLoader<S> load(Class<S> service) {
+
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+
+        return ServiceLoader.load(service, cl);
+
+    }
+```
+
+第一行，获取当前线程的线程上下⽂类加载器 AppClassLoader，⽤于加载 classpath 中的具体实现类。
+
+### **为什么Tomcat要破坏双亲委派**
+
+我们知道，Tomcat是web容器，那么一个web容器可能需要部署多个应用程序。
+
+不同的应用程序可能会依赖同一个第三方类库的不同版本，但是不同版本的类库中某一个类的全路径名可能是一样的。
+
+如多个应用都要依赖hollis.jar，但是A应用需要依赖1.0.0版本，但是B应用需要依赖1.0.1版本。这两个版本中都有一个类是com.hollis.Test.class。
+
+**如果采用默认的双亲委派类加载机制，那么是无法加载多个相同的类。**
+
+所以，**Tomcat破坏双亲委派原则，提供隔离的机制，为每个web容器单独提供一个WebAppClassLoader加载器。**
+
+Tomcat的类加载机制：为了实现隔离性，优先加载 Web 应用自己定义的类，所以没有遵照双亲委派的约定，每一个应用自己的类加载器——WebAppClassLoader负责加载本身的目录下的class文件，加载不到时再交给CommonClassLoader加载，这和双亲委派刚好相反。
 
 
 
